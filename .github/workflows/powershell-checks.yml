@@ -1,0 +1,48 @@
+name: PowerShell Checks
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  checks:
+    name: Parse + PSScriptAnalyzer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse-check all PowerShell scripts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $failed = $false
+          $scripts = Get-ChildItem -Path . -Recurse -File -Include *.ps1, *.psm1, *.psd1
+          if (-not $scripts) { Write-Host 'No PowerShell scripts found.'; return }
+          foreach ($f in $scripts) {
+              $text   = [System.IO.File]::ReadAllText($f.FullName)
+              $errors = $null
+              [void][System.Management.Automation.Language.Parser]::ParseInput($text, [ref]$null, [ref]$errors)
+              if ($errors.Count -gt 0) {
+                  $failed = $true
+                  foreach ($e in $errors) {
+                      Write-Host "::error file=$($f.FullName),line=$($e.Extent.StartLineNumber)::$($e.Message)"
+                  }
+              } else {
+                  Write-Host "OK  $($f.FullName)"
+              }
+          }
+          if ($failed) { throw 'Parse errors found in one or more scripts.' }
+
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser -SkipPublisherCheck
+          $results = Invoke-ScriptAnalyzer -Path . -Recurse -Severity Error, Warning
+          foreach ($r in $results) {
+              $level = if ($r.Severity -eq 'Error') { 'error' } else { 'warning' }
+              Write-Host "::$level file=$($r.ScriptPath),line=$($r.Line)::[$($r.RuleName)] $($r.Message)"
+          }
+          $errorCount = @($results | Where-Object { $_.Severity -eq 'Error' }).Count
+          if ($errorCount -gt 0) { throw "PSScriptAnalyzer reported $errorCount error(s)." }
+          Write-Host "PSScriptAnalyzer: no errors ($(@($results).Count) warning(s))."
