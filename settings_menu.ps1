@@ -7,6 +7,8 @@
 # HELPERS  Ã¢â‚¬â€ StrictMode-safe property access for PSCustomObjects from JSON
 # Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
 
+$script:ModelCache = @{}
+
 function Set-Prop {
     param([ValidateNotNull()][object]$Obj, [ValidateNotNullOrEmpty()][string]$Name, $Value)
     $Obj | Add-Member -MemberType NoteProperty -Name $Name -Value $Value -Force
@@ -105,7 +107,8 @@ function Get-UiTheme {
     $preset = 'soft_dark'
     try {
         if ($Config -and $Config.PSObject.Properties['runtime'] -and $Config.runtime.PSObject.Properties['theme']) {
-            $preset = "$($Config.runtime.theme)"
+            $rTheme = $Config.runtime.theme
+            $preset = "$rTheme"
         }
     } catch {}
 
@@ -268,13 +271,15 @@ function Get-FallbackModelCatalog {
 
 function Get-LiveGeminiModels {
     param([object]$Config)
+    if ($script:ModelCache.ContainsKey('gemini')) { return $script:ModelCache['gemini'] }
 
     try {
         $key = Get-Prop $Config.api_keys 'gemini' ''
         if ([string]::IsNullOrWhiteSpace($key)) { return @() }
-        $uri = "https://generativelanguage.googleapis.com/v1beta/models?key=$([uri]::EscapeDataString($key))"
-        $res = Invoke-RestMethod -Uri $uri -Method GET -TimeoutSec 20 -EA Stop
-        return @(
+        $keyEnc = [uri]::EscapeDataString($key)
+        $uri = "https://generativelanguage.googleapis.com/v1beta/models?key=$keyEnc"
+        $res = Invoke-RestMethod -Uri $uri -Method GET -TimeoutSec 10 -EA Stop
+        $models = @(
             $res.models |
             Where-Object {
                 $_.name -and
@@ -288,6 +293,8 @@ function Get-LiveGeminiModels {
             Where-Object { $_.Id -notmatch 'image|imagen|embedding|audio|tts|veo|vision' } |
             Sort-Object Id -Unique
         )
+        if ($models.Count -gt 0) { $script:ModelCache['gemini'] = $models }
+        return $models
     } catch {
         return @()
     }
@@ -295,14 +302,16 @@ function Get-LiveGeminiModels {
 
 function Get-LiveopenaiModels {
     param([object]$Config)
+    if ($script:ModelCache.ContainsKey('openai')) { return $script:ModelCache['openai'] }
+
     $key = Get-Prop $Config.api_keys 'openai' ''
     if ([string]::IsNullOrWhiteSpace($key)) { return @() }
 
     try {
         $res = Invoke-RestMethod -Uri 'https://api.openai.com/v1/models' -Method GET `
-            -Headers @{ Authorization = "Bearer $key" } -TimeoutSec 20 -EA Stop
+            -Headers @{ Authorization = "Bearer $key" } -TimeoutSec 10 -EA Stop
         $blocked = 'audio|tts|transcribe|whisper|embedding|moderation|image|dall|sora|realtime'
-        return @(
+        $models = @(
             $res.data |
             Where-Object {
                 $_.id -and
@@ -314,6 +323,8 @@ function Get-LiveopenaiModels {
                 [PSCustomObject]@{ Id=$_.id; Label=$_.id; Note='live from OpenAI API' }
             }
         )
+        if ($models.Count -gt 0) { $script:ModelCache['openai'] = $models }
+        return $models
     } catch {
         return @()
     }
@@ -321,11 +332,13 @@ function Get-LiveopenaiModels {
 
 function Get-LiveHuggingFaceModels {
     param([object]$Config)
+    if ($script:ModelCache.ContainsKey('huggingface_text')) { return $script:ModelCache['huggingface_text'] }
+
     try {
         $amp = [char]38
         $uri = "https://huggingface.co/api/models?pipeline_tag=text-generation${amp}sort=downloads${amp}direction=-1${amp}limit=20"
-        $res = Invoke-RestMethod -Uri $uri -Method GET -TimeoutSec 20 -EA Stop
-        return @(
+        $res = Invoke-RestMethod -Uri $uri -Method GET -TimeoutSec 10 -EA Stop
+        $models = @(
             $res | ForEach-Object {
                 $dl = Get-Prop $_ 'downloads' 0
                 $dlStr = Format-LargeCount $dl
@@ -336,6 +349,8 @@ function Get-LiveHuggingFaceModels {
                 }
             }
         )
+        if ($models.Count -gt 0) { $script:ModelCache['huggingface_text'] = $models }
+        return $models
     } catch {
         return @()
     }
@@ -370,9 +385,14 @@ function Select-FirstModelMatch {
     foreach ($pattern in $Patterns) {
         $found = @(
             $Models | Where-Object {
-                $_.Id -and
-                @($ExcludeIds) -notcontains $_.Id -and
-                (("$($_.Id) $($_.Label) $($_.Note)") -match $pattern)
+                $m = $_
+                $mid = $m.Id
+                $mlbl = $m.Label
+                $mnote = $m.Note
+                $txt = "$mid $mlbl $mnote"
+                $mid -and
+                @($ExcludeIds) -notcontains $mid -and
+                ($txt -match $pattern)
             } | Select-Object -First 1
         )
         if ($found.Count -gt 0) { return $found[0] }
@@ -439,14 +459,21 @@ function New-ModelPickerItems {
 
     if ($suggested.Count -gt 0) { $items += New-MenuHeader -Label 'Suggested' }
     foreach ($item in $suggested) {
-        $hint = if ($item.Id -eq $CurrentModel) { 'current' } else { $item.Note }
-        $items += New-MenuItem -Key $item.Id -Label "Suggested $($item.Slot)" -Value $item.Label -Hint $hint
+        $iid = $item.Id
+        $islot = $item.Slot
+        $ilbl = $item.Label
+        $inote = $item.Note
+        $hint = if ($iid -eq $CurrentModel) { 'current' } else { $inote }
+        $items += New-MenuItem -Key $iid -Label "Suggested $islot" -Value $ilbl -Hint $hint
     }
 
     if ($Models.Count -gt $suggested.Count) { $items += New-MenuHeader -Label 'All Models' }
-    foreach ($model in @($Models | Where-Object { @($suggestedIds) -notcontains $_.Id })) {
-        $hint = if ($model.Id -eq $CurrentModel) { 'current' } else { $model.Note }
-        $items += New-MenuItem -Key $model.Id -Label $model.Label -Hint $hint
+    foreach ($model in @($Models | Where-Object { $mid = $_.Id; @($suggestedIds) -notcontains $mid })) {
+        $mid = $model.Id
+        $mlbl = $model.Label
+        $mnote = $model.Note
+        $hint = if ($mid -eq $CurrentModel) { 'current' } else { $mnote }
+        $items += New-MenuItem -Key $mid -Label $mlbl -Hint $hint
     }
 
     return @($items)
@@ -490,7 +517,10 @@ function Get-LiveElevenLabsVoices {
 function Get-VoiceSocialScore {
     param([object]$Voice)
 
-    $text = "$($Voice.Label) $($Voice.Note) $($Voice.UseCase)"
+    $vlbl = $Voice.Label
+    $vnote = $Voice.Note
+    $vuc = $Voice.UseCase
+    $text = "$vlbl $vnote $vuc"
     $score = 0
     if ($text -match 'social[_ -]?media') { $score += 10 }
     if ($text -match 'premade|owned') { $score += 3 }
@@ -575,15 +605,21 @@ function New-VoicePickerItems {
 
     if ($suggested.Count -gt 0) { $items += New-MenuHeader -Label 'Top Social Media Voices' }
     foreach ($voice in $suggested) {
-        $hint = if ($voice.Id -eq $CurrentVoiceId) { 'current' } else { $voice.Note }
-        $items += New-MenuItem -Key $voice.Id -Label "Suggested Social $rank" -Value $voice.Label -Hint $hint
+        $vid = $voice.Id
+        $vlbl = $voice.Label
+        $vnote = $voice.Note
+        $hint = if ($vid -eq $CurrentVoiceId) { 'current' } else { $vnote }
+        $items += New-MenuItem -Key $vid -Label "Suggested Social $rank" -Value $vlbl -Hint $hint
         $rank++
     }
 
     if ($Voices.Count -gt $suggested.Count) { $items += New-MenuHeader -Label 'All Voices' }
-    foreach ($voice in @($Voices | Where-Object { @($suggestedIds) -notcontains $_.Id })) {
-        $hint = if ($voice.Id -eq $CurrentVoiceId) { 'current' } else { $voice.Note }
-        $items += New-MenuItem -Key $voice.Id -Label $voice.Label -Hint $hint
+    foreach ($voice in @($Voices | Where-Object { $vid = $_.Id; @($suggestedIds) -notcontains $vid })) {
+        $vid = $voice.Id
+        $vlbl = $voice.Label
+        $vnote = $voice.Note
+        $hint = if ($vid -eq $CurrentVoiceId) { 'current' } else { $vnote }
+        $items += New-MenuItem -Key $vid -Label $vlbl -Hint $hint
     }
 
     return @($items)
@@ -610,21 +646,37 @@ function Get-LiveElevenLabsTtsModels {
         if (-not [string]::IsNullOrWhiteSpace($key)) { $headers['xi-api-key'] = $key }
         $res = Invoke-RestMethod -Uri 'https://api.elevenlabs.io/v1/models' `
             -Headers $headers -TimeoutSec 20 -EA Stop
-        return @(
+        $models = @(
             $res |
             Where-Object { $_.model_id -and $_.can_do_text_to_speech } |
             ForEach-Object {
-                $languages = if ($_.languages) { "$(@($_.languages).Count) languages" } else { '' }
-                $cost = if ($_.model_rates -and $_.model_rates.PSObject.Properties['character_cost_multiplier']) { "cost x$($_.model_rates.character_cost_multiplier)" } elseif ($_.PSObject.Properties['token_cost_factor']) { "cost x$($_.token_cost_factor)" } else { '' }
-                $note = @($_.description, $languages, $cost) | Where-Object { $_ } | Select-Object -First 3
+                $m = $_
+                $langs = $m.languages
+                $lCount = if ($langs) { @($langs).Count } else { 0 }
+                $languages = if ($lCount -gt 0) { "$lCount languages" } else { '' }
+
+                $cost = ''
+                if ($m.model_rates -and $m.model_rates.PSObject.Properties['character_cost_multiplier']) {
+                    $mult = $m.model_rates.character_cost_multiplier
+                    $cost = "cost x$mult"
+                } elseif ($m.PSObject.Properties['token_cost_factor']) {
+                    $fact = $m.token_cost_factor
+                    $cost = "cost x$fact"
+                }
+
+                $mDesc = $m.description
+                $note = @($mDesc, $languages, $cost) | Where-Object { $_ } | Select-Object -First 3
+                $mid = $m.model_id
+                $mlbl = if ($m.name) { $m.name } else { $mid }
                 [PSCustomObject]@{
-                    Id = $_.model_id
-                    Label = if ($_.name) { $_.name } else { $_.model_id }
+                    Id = $mid
+                    Label = $mlbl
                     Note = ($note -join ' | ')
                 }
             } |
             Sort-Object Id -Unique
         )
+        return $models
     } catch {
         return @()
     }
@@ -698,13 +750,15 @@ function Get-LiveOpenAIImageModels {
 
 function Get-LiveGeminiImageModels {
     param([object]$Config)
+    if ($script:ModelCache.ContainsKey('gemini_image')) { return $script:ModelCache['gemini_image'] }
 
     try {
         $key = Get-Prop $Config.api_keys 'gemini' ''
         if ([string]::IsNullOrWhiteSpace($key)) { return @() }
-        $uri = "https://generativelanguage.googleapis.com/v1beta/models?key=$([uri]::EscapeDataString($key))"
-        $res = Invoke-RestMethod -Uri $uri -Method GET -TimeoutSec 20 -EA Stop
-        return @(
+        $kEnc = [uri]::EscapeDataString($key)
+        $uri = "https://generativelanguage.googleapis.com/v1beta/models?key=$kEnc"
+        $res = Invoke-RestMethod -Uri $uri -Method GET -TimeoutSec 10 -EA Stop
+        $models = @(
             $res.models |
             Where-Object { $_.name -and $_.name -match 'image|imagen' } |
             ForEach-Object {
@@ -713,6 +767,8 @@ function Get-LiveGeminiImageModels {
             } |
             Sort-Object Id -Unique
         )
+        if ($models.Count -gt 0) { $script:ModelCache['gemini_image'] = $models }
+        return $models
     } catch {
         return @()
     }
@@ -720,36 +776,44 @@ function Get-LiveGeminiImageModels {
 
 function Get-LivePollinationsImageModels {
     param([object]$Config)
+    if ($script:ModelCache.ContainsKey('pollinations_image')) { return $script:ModelCache['pollinations_image'] }
 
     try {
         $headers = @{}
         $key = Get-Prop $Config.api_keys 'pollinations' ''
         if (-not [string]::IsNullOrWhiteSpace($key)) { $headers['Authorization'] = "Bearer $key" }
         $res = Invoke-RestMethod -Uri 'https://gen.pollinations.ai/image/models' -Method GET `
-            -Headers $headers -TimeoutSec 20 -EA Stop
-        return @(
+            -Headers $headers -TimeoutSec 10 -EA Stop
+        $models = @(
             $res |
             Where-Object {
-                $_.name -and (
-                    -not $_.PSObject.Properties['output_modalities'] -or
-                    @($_.output_modalities) -contains 'image'
+                $m = $_
+                $m.name -and (
+                    -not $m.PSObject.Properties['output_modalities'] -or
+                    @($m.output_modalities) -contains 'image'
                 )
             } |
             ForEach-Object {
+                $m = $_
                 $price = ''
-                if ($_.pricing -and $_.pricing.PSObject.Properties['image']) {
-                    $currency = if ($_.pricing.PSObject.Properties['currency']) { $_.pricing.currency } else { 'pollen' }
-                    $price = "cost $($_.pricing.image) $currency"
+                if ($m.pricing -and $m.pricing.PSObject.Properties['image']) {
+                    $pollen = $m.pricing.image
+                    $currency = if ($m.pricing.PSObject.Properties['currency']) { $m.pricing.currency } else { 'pollen' }
+                    $price = "cost $pollen $currency"
                 }
-                $note = @($_.description, $price) | Where-Object { $_ } | Select-Object -First 2
+                $mDesc = $m.description
+                $note = @($mDesc, $price) | Where-Object { $_ } | Select-Object -First 2
+                $mName = $m.name
                 [PSCustomObject]@{
-                    Id = $_.name
-                    Label = $_.name
+                    Id = $mName
+                    Label = $mName
                     Note = ($note -join ' | ')
                 }
             } |
             Sort-Object Id -Unique
         )
+        if ($models.Count -gt 0) { $script:ModelCache['pollinations_image'] = $models }
+        return $models
     } catch {
         return @()
     }
@@ -757,11 +821,13 @@ function Get-LivePollinationsImageModels {
 
 function Get-LiveHuggingFaceImageModels {
     param([object]$Config)
+    if ($script:ModelCache.ContainsKey('huggingface_image')) { return $script:ModelCache['huggingface_image'] }
+
     try {
         $amp = [char]38
         $uri = "https://huggingface.co/api/models?pipeline_tag=text-to-image${amp}sort=downloads${amp}direction=-1${amp}limit=20"
-        $res = Invoke-RestMethod -Uri $uri -Method GET -TimeoutSec 20 -EA Stop
-        return @(
+        $res = Invoke-RestMethod -Uri $uri -Method GET -TimeoutSec 10 -EA Stop
+        $models = @(
             $res | ForEach-Object {
                 $dl = Get-Prop $_ 'downloads' 0
                 $dlStr = Format-LargeCount $dl
@@ -772,6 +838,8 @@ function Get-LiveHuggingFaceImageModels {
                 }
             }
         )
+        if ($models.Count -gt 0) { $script:ModelCache['huggingface_image'] = $models }
+        return $models
     } catch {
         return @()
     }
@@ -807,12 +875,16 @@ function Select-ImageModel {
     $sourceText = if ($options.Source -eq 'live') { 'Live provider list' } else { 'Built-in fallback list' }
     $items = @(
         $options.Models | ForEach-Object {
-            $hint = if ($_.Id -eq $CurrentModel) { 'current' } else { $_.Note }
-            New-MenuItem -Key $_.Id -Label $_.Label -Hint $hint
+            $mid = $_.Id
+            $mlbl = $_.Label
+            $mnote = $_.Note
+            $hint = if ($mid -eq $CurrentModel) { 'current' } else { $mnote }
+            New-MenuItem -Key $mid -Label $mlbl -Hint $hint
         }
     )
 
-    $selected = Invoke-NumberedMenu -Title "$($Provider.ToUpper()) Image Models" -Subtitle "Current: $CurrentModel  |  Source: $sourceText" -Items $items -PageSize 10 -AllowManual -Config $Config
+    $pUpp = $Provider.ToUpper()
+    $selected = Invoke-NumberedMenu -Title "$pUpp Image Models" -Subtitle "Current: $CurrentModel  |  Source: $sourceText" -Items $items -PageSize 10 -AllowManual -Config $Config
     if (-not $selected) { return $CurrentModel }
     if ($selected.Key -eq '__manual') {
         Show-SettingsBanner
@@ -863,14 +935,21 @@ function New-TtsModelPickerItems {
 
     if ($suggested.Count -gt 0) { $items += New-MenuHeader -Label 'Suggested' }
     foreach ($model in $suggested) {
-        $hint = if ($model.Id -eq $CurrentModel) { 'current' } else { $model.Note }
-        $items += New-MenuItem -Key $model.Id -Label "Suggested $($model.Slot)" -Value $model.Label -Hint $hint
+        $mid = $model.Id
+        $mslot = $model.Slot
+        $mlbl = $model.Label
+        $mnote = $model.Note
+        $hint = if ($mid -eq $CurrentModel) { 'current' } else { $mnote }
+        $items += New-MenuItem -Key $mid -Label "Suggested $mslot" -Value $mlbl -Hint $hint
     }
 
     if ($Models.Count -gt $suggested.Count) { $items += New-MenuHeader -Label 'All TTS Models' }
-    foreach ($model in @($Models | Where-Object { @($suggestedIds) -notcontains $_.Id })) {
-        $hint = if ($model.Id -eq $CurrentModel) { 'current' } else { $model.Note }
-        $items += New-MenuItem -Key $model.Id -Label $model.Label -Hint $hint
+    foreach ($model in @($Models | Where-Object { $mid = $_.Id; @($suggestedIds) -notcontains $mid })) {
+        $mid = $model.Id
+        $mlbl = $model.Label
+        $mnote = $model.Note
+        $hint = if ($mid -eq $CurrentModel) { 'current' } else { $mnote }
+        $items += New-MenuItem -Key $mid -Label $mlbl -Hint $hint
     }
 
     return @($items)
@@ -939,11 +1018,12 @@ function Select-ModelFromList {
     $models = @($options.Models)
     $sourceText = if ($options.Source -eq 'live') { 'Live provider list' } else { 'Built-in fallback list' }
     $items = @(New-ModelPickerItems -Backend $Backend -Models $models -CurrentModel $CurrentModel)
-    $selected = Invoke-NumberedMenu -Title "$($Backend.ToUpper()) Models" -Subtitle "Current: $CurrentModel  |  Source: $sourceText" -Items $items -PageSize 10 -AllowManual -Config $Config
+    $bUpp = $Backend.ToUpper()
+    $selected = Invoke-NumberedMenu -Title "$bUpp Models" -Subtitle "Current: $CurrentModel  |  Source: $sourceText" -Items $items -PageSize 10 -AllowManual -Config $Config
     if (-not $selected) { return $CurrentModel }
     if ($selected.Key -eq '__manual') {
         Show-SettingsBanner
-        Write-Host "  $($Backend.ToUpper()) model" -ForegroundColor Cyan
+        Write-Host "  $bUpp model" -ForegroundColor Cyan
         $manual = (Read-Host '  Model name').Trim()
         if ($manual) { return $manual }
         return $CurrentModel
@@ -961,7 +1041,8 @@ function Invoke-ModelCheck {
         $source  = if ($options.Source -eq 'live') { 'live' } else { 'fallback' }
         $icon    = if ($current -and $known) { 'OK' } elseif ($current) { 'CUSTOM' } else { 'MISSING' }
         $color   = if ($current -and $known) { 'Green' } elseif ($current) { 'Yellow' } else { 'Red' }
-        Write-Host ("  {0,-6} {1,-7} {2}  ({3})" -f $icon, $backend, $(if ($current) { $current } else { '[not set]' }), $source) -ForegroundColor $color
+        $dispModel = if ($current) { $current } else { '[not set]' }
+        Write-Host ("  {0,-6} {1,-7} {2}  ({3})" -f $icon, $backend, $dispModel, $source) -ForegroundColor $color
     }
 
     $imageProvider = Get-Prop $Config.images 'provider' 'openai'
@@ -972,7 +1053,8 @@ function Invoke-ModelCheck {
         $imageSource = if ($imageOptions.Source -eq 'live') { 'live' } else { 'fallback' }
         $imageIcon = if ($currentImage -and $knownImage) { 'OK' } elseif ($currentImage) { 'CUSTOM' } else { 'MISSING' }
         $imageColor = if ($currentImage -and $knownImage) { 'Green' } elseif ($currentImage) { 'Yellow' } else { 'Red' }
-        Write-Host ("  {0,-6} image   {1}/{2}  ({3})" -f $imageIcon, $imageProvider, $(if ($currentImage) { $currentImage } else { '[not set]' }), $imageSource) -ForegroundColor $imageColor
+        $dispImageModel = if ($currentImage) { $currentImage } else { '[not set]' }
+        Write-Host ("  {0,-6} image   {1}/{2}  ({3})" -f $imageIcon, $imageProvider, $dispImageModel, $imageSource) -ForegroundColor $imageColor
     }
 
     Write-Host ''
@@ -1102,8 +1184,9 @@ function Edit-ApiKeys {
                         Invoke-RestMethod -Uri 'https://api.elevenlabs.io/v1/user' `
                             -Headers @{'xi-api-key'=$k} -EA Stop | Out-Null; $true
                     } catch { $false }
-                    Write-Host $(if ($ok) { ' OK Valid' } else { ' Unreachable or invalid' }) `
-                        -ForegroundColor $(if ($ok) { 'Green' } else { 'Yellow' })
+                    $vRes = if ($ok) { ' OK Valid' } else { ' Unreachable or invalid' }
+                    $vCol = if ($ok) { 'Green' } else { 'Yellow' }
+                    Write-Host $vRes -ForegroundColor $vCol
                     Start-Sleep 1
                 }
             }
@@ -1156,11 +1239,12 @@ function Edit-AIBackend {
             New-MenuItem -Key 'auto_fallback' -Label 'Auto fallback'       -Value (Get-Prop $Config.ai 'auto_fallback' $true)
         )
         if ($primary -eq 'gemini') {
+            $vgt = Get-Prop $Config.ai.gemini 'timeout_seconds' 300
             $items += @(
                 New-MenuHeader -Label 'Selected Gemini Settings'
                 New-MenuItem -Key 'gemini_model'  -Label 'Gemini model'        -Value (Get-Prop $Config.ai.gemini 'model' 'gemini-2.5-flash')
                 New-MenuItem -Key 'gemini_approval' -Label 'Gemini approval'   -Value (Get-Prop $Config.ai.gemini 'approval_mode' 'auto_edit')
-                New-MenuItem -Key 'gemini_timeout'-Label 'Gemini timeout'      -Value "$(Get-Prop $Config.ai.gemini 'timeout_seconds' 300)s"
+                New-MenuItem -Key 'gemini_timeout'-Label 'Gemini timeout'      -Value "${vgt}s"
                 New-MenuItem -Key 'gemini_cli'    -Label 'Gemini CLI path'     -Value (Get-Prop $Config.ai.gemini 'cli_path' 'gemini')
             )
         } elseif ($primary -eq 'huggingface') {
@@ -1228,14 +1312,16 @@ function Edit-AIBackend {
             'gemini_timeout' {
                 Show-SettingsBanner
                 Write-Host '  Gemini timeout seconds' -ForegroundColor Cyan
-                Write-Host "  Current: $(Get-Prop $Config.ai.gemini 'timeout_seconds' 300)" -ForegroundColor DarkGray
+                $vgt = Get-Prop $Config.ai.gemini 'timeout_seconds' 300
+                Write-Host "  Current: $vgt" -ForegroundColor DarkGray
                 $v = (Read-Host '  New value').Trim()
                 if ($v -match '^\d+$') { Set-Prop $Config.ai.gemini 'timeout_seconds' ([int]$v) }
             }
             'gemini_cli' {
                 Show-SettingsBanner
                 Write-Host '  Gemini CLI path' -ForegroundColor Cyan
-                Write-Host "  Current: $(Get-Prop $Config.ai.gemini 'cli_path' 'gemini')" -ForegroundColor DarkGray
+                $vgc = Get-Prop $Config.ai.gemini 'cli_path' 'gemini'
+                Write-Host "  Current: $vgc" -ForegroundColor DarkGray
                 $v = (Read-Host '  New value').Trim()
                 if ($v) { Set-Prop $Config.ai.gemini 'cli_path' $v }
             }
@@ -1306,11 +1392,14 @@ function Edit-VoiceSettings {
             )
         }
 
+        $vst = Get-Prop $Config.audio 'silence_thresh_dbfs'
+        $vms = Get-Prop $Config.audio 'min_silence_len_ms'
+        $vks = Get-Prop $Config.audio 'keep_silence_ms'
         $items += @(
             New-MenuHeader -Label 'Audio Cleanup'
-            New-MenuItem -Key 'silence_thresh' -Label 'Silence threshold' -Value "$(Get-Prop $Config.audio 'silence_thresh_dbfs') dBFS"
-            New-MenuItem -Key 'min_silence' -Label 'Min silence length' -Value "$(Get-Prop $Config.audio 'min_silence_len_ms') ms"
-            New-MenuItem -Key 'keep_silence' -Label 'Keep padding' -Value "$(Get-Prop $Config.audio 'keep_silence_ms') ms"
+            New-MenuItem -Key 'silence_thresh' -Label 'Silence threshold' -Value "$vst dBFS"
+            New-MenuItem -Key 'min_silence' -Label 'Min silence length' -Value "$vms ms"
+            New-MenuItem -Key 'keep_silence' -Label 'Keep padding' -Value "$vks ms"
         )
         $selected = Invoke-NumberedMenu -Title 'Voice / Audio' -Subtitle 'Voice choice, TTS model, and audio cleanup live together here.' -Items $items -Config $Config
         if (-not $selected) { return }
@@ -1326,7 +1415,8 @@ function Edit-VoiceSettings {
             }
             'edge_voice' {
                 Write-Host '  Edge TTS Voice' -ForegroundColor Cyan
-                Write-Host "  Current: $(Get-Prop $Config.voice 'edge_voice')" -ForegroundColor DarkGray
+                $vev = Get-Prop $Config.voice 'edge_voice'
+                Write-Host "  Current: $vev" -ForegroundColor DarkGray
                 $v = (Read-Host '  New voice name (e.g. en-US-ChristopherNeural)').Trim()
                 if ($v) { Set-Prop $Config.voice 'edge_voice' $v }
             }
@@ -1356,19 +1446,22 @@ function Edit-VoiceSettings {
             }
             'silence_thresh' {
                 Write-Host '  Silence threshold dBFS' -ForegroundColor Cyan
-                Write-Host "  Current: $(Get-Prop $Config.audio 'silence_thresh_dbfs')" -ForegroundColor DarkGray
+                $vst = Get-Prop $Config.audio 'silence_thresh_dbfs'
+                Write-Host "  Current: $vst" -ForegroundColor DarkGray
                 $v = (Read-Host '  New value').Trim()
                 if ($v -match '^-?\d+$') { Set-Prop $Config.audio 'silence_thresh_dbfs' ([int]$v) }
             }
             'min_silence' {
                 Write-Host '  Min silence length ms' -ForegroundColor Cyan
-                Write-Host "  Current: $(Get-Prop $Config.audio 'min_silence_len_ms')" -ForegroundColor DarkGray
+                $vms = Get-Prop $Config.audio 'min_silence_len_ms'
+                Write-Host "  Current: $vms" -ForegroundColor DarkGray
                 $v = (Read-Host '  New value').Trim()
                 if ($v -match '^\d+$') { Set-Prop $Config.audio 'min_silence_len_ms' ([int]$v) }
             }
             'keep_silence' {
                 Write-Host '  Keep silence padding ms' -ForegroundColor Cyan
-                Write-Host "  Current: $(Get-Prop $Config.audio 'keep_silence_ms')" -ForegroundColor DarkGray
+                $vks = Get-Prop $Config.audio 'keep_silence_ms'
+                Write-Host "  Current: $vks" -ForegroundColor DarkGray
                 $v = (Read-Host '  New value').Trim()
                 if ($v -match '^\d+$') { Set-Prop $Config.audio 'keep_silence_ms' ([int]$v) }
             }
@@ -1467,7 +1560,8 @@ function Edit-ImageSettings {
             'tokens_info' {
                 Show-SettingsBanner
                 Write-Host '  Image token estimate' -ForegroundColor Cyan
-                Write-Host "  $(Get-ImageTokenText -Config $Config)" -ForegroundColor White
+                $vti = Get-ImageTokenText -Config $Config
+                Write-Host "  $vti" -ForegroundColor White
                 Write-Host ''
                 Write-Host '  Composite saving levels reduce generated image calls, so the per-scene estimate drops when one generated image contains multiple scenes.' -ForegroundColor DarkGray
                 Read-Host '  Press Enter to continue'
@@ -1508,14 +1602,16 @@ function Edit-ImageSettings {
             'pwidth' {
                 Show-SettingsBanner
                 Write-Host '  Pollinations width' -ForegroundColor Cyan
-                Write-Host "  Current: $(Get-Prop $Config.images 'pollinations_width' 1536)" -ForegroundColor DarkGray
+                $vpw = Get-Prop $Config.images 'pollinations_width' 1536
+                Write-Host "  Current: $vpw" -ForegroundColor DarkGray
                 $v = (Read-Host '  New value').Trim()
                 if ($v -match '^\d+$') { Set-Prop $Config.images 'pollinations_width' ([int]$v) }
             }
             'pheight' {
                 Show-SettingsBanner
                 Write-Host '  Pollinations height' -ForegroundColor Cyan
-                Write-Host "  Current: $(Get-Prop $Config.images 'pollinations_height' 864)" -ForegroundColor DarkGray
+                $vph = Get-Prop $Config.images 'pollinations_height' 864
+                Write-Host "  Current: $vph" -ForegroundColor DarkGray
                 $v = (Read-Host '  New value').Trim()
                 if ($v -match '^\d+$') { Set-Prop $Config.images 'pollinations_height' ([int]$v) }
             }
@@ -1523,7 +1619,8 @@ function Edit-ImageSettings {
                 Show-SettingsBanner
                 Write-Host '  Pollinations seed' -ForegroundColor Cyan
                 Write-Host '  Use -1 for random.' -ForegroundColor DarkGray
-                Write-Host "  Current: $(Get-Prop $Config.images 'pollinations_seed' -1)" -ForegroundColor DarkGray
+                $vps = Get-Prop $Config.images 'pollinations_seed' -1
+                Write-Host "  Current: $vps" -ForegroundColor DarkGray
                 $v = (Read-Host '  New value').Trim()
                 if ($v -match '^-?\d+$') { Set-Prop $Config.images 'pollinations_seed' ([int]$v) }
             }
@@ -1536,14 +1633,16 @@ function Edit-ImageSettings {
             'pnegative' {
                 Show-SettingsBanner
                 Write-Host '  Pollinations negative prompt' -ForegroundColor Cyan
-                Write-Host "  Current: $(Get-Prop $Config.images 'pollinations_negative_prompt' '')" -ForegroundColor DarkGray
+                $vpn = Get-Prop $Config.images 'pollinations_negative_prompt' ''
+                Write-Host "  Current: $vpn" -ForegroundColor DarkGray
                 $v = (Read-Host '  New value').Trim()
                 if ($v) { Set-Prop $Config.images 'pollinations_negative_prompt' $v }
             }
             'retries' {
                 Show-SettingsBanner
                 Write-Host '  Image retries' -ForegroundColor Cyan
-                Write-Host "  Current: $(Get-Prop $Config.images 'retries' 2)" -ForegroundColor DarkGray
+                $vrt = Get-Prop $Config.images 'retries' 2
+                Write-Host "  Current: $vrt" -ForegroundColor DarkGray
                 $v = (Read-Host '  New value').Trim()
                 if ($v -match '^\d+$') { Set-Prop $Config.images 'retries' ([int]$v) }
             }
@@ -1560,7 +1659,8 @@ function Edit-ImageSettings {
 function Edit-StyleLock {
     param([object]$Config)
     Write-Host "`n  Ã¢â‚¬â€ Style Lock Ã¢â‚¬â€`n" -ForegroundColor Cyan
-    Write-Host "  Current: $(Get-Prop $Config 'style_lock' '')`n" -ForegroundColor DarkGray
+    $vsl = Get-Prop $Config 'style_lock' ''
+    Write-Host "  Current: $vsl`n" -ForegroundColor DarkGray
 
     $v = (Read-Host '  New style string (blank = keep)').Trim()
     if ($v) { Set-Prop $Config 'style_lock' $v }
@@ -1624,8 +1724,9 @@ function Edit-Notifications {
 
     $Config.notifications.PSObject.Properties | ForEach-Object {
         $cur = if ($_.Value) { 'ON' } else { 'off' }
-        $v   = (Read-Host "  $($_.Name) [currently: $cur] (true/false)").Trim().ToLower()
-        if ($v -match '^(true|false)$') { Set-Prop $Config.notifications $_.Name ([bool]::Parse($v)) }
+        $nname = $_.Name
+        $v   = (Read-Host "  $nname [currently: $cur] (true/false)").Trim().ToLower()
+        if ($v -match '^(true|false)$') { Set-Prop $Config.notifications $nname ([bool]::Parse($v)) }
     }
 }
 
@@ -1699,17 +1800,38 @@ function Invoke-SettingsMenu {
     while ($running) {
         $mainBackend = Get-Prop $Config.ai 'primary' 'openai'
         $mainModel = Get-Prop $Config.ai.$mainBackend 'model' ''
+
+        $oaKey = Mask-Key (Get-Prop $Config.api_keys 'openai')
+        $pKey = Mask-Key (Get-Prop $Config.api_keys 'pollinations')
+        $hfKey = Mask-Key (Get-Prop $Config.api_keys 'huggingface')
+
+        $vModel = Get-Prop $Config.voice 'model_id' 'eleven_flash_v2_5'
+        $vThresh = Get-Prop $Config.audio 'silence_thresh_dbfs'
+
+        $iMode = Get-Prop $Config.images 'mode' 'auto_review'
+        $iProv = Get-Prop $Config.images 'provider' 'openai'
+        $iLay = Get-CompositeLayoutLabel (Get-Prop $Config.images 'composite_layout' '1x1')
+
+        $vFps = Get-Prop $Config.video 'fps'
+        $vCodec = Get-Prop $Config.video 'codec'
+
+        $learnEnabled = if (Get-Prop $Config.learning 'enabled' $true) { 'enabled' } else { 'disabled' }
+
+        $rAdmin = Get-Prop $Config.runtime 'run_as_admin' $false
+        $rCheck = Get-Prop $Config.runtime 'startup_checks' $true
+        $rTheme = Get-Prop $Config.runtime 'theme' 'soft_dark'
+
         $items = @(
-            New-MenuItem -Key 'api'     -Label 'API keys'       -Value "OA:$(Mask-Key (Get-Prop $Config.api_keys 'openai')) P:$(Mask-Key (Get-Prop $Config.api_keys 'pollinations')) HF:$(Mask-Key (Get-Prop $Config.api_keys 'huggingface'))"
+            New-MenuItem -Key 'api'     -Label 'API keys'       -Value "OA:$oaKey P:$pKey HF:$hfKey"
             New-MenuItem -Key 'ai'      -Label 'Main AI'        -Value "Primary $mainBackend  model $mainModel"
-            New-MenuItem -Key 'voice'   -Label 'Voice / Audio'  -Value "$(Get-Prop $Config.voice 'model_id' 'eleven_flash_v2_5')  cleanup $(Get-Prop $Config.audio 'silence_thresh_dbfs') dBFS"
-            New-MenuItem -Key 'images'  -Label 'Images/AI'      -Value "$(Get-Prop $Config.images 'mode' 'auto_review')  $(Get-Prop $Config.images 'provider' 'openai')  $(Get-CompositeLayoutLabel (Get-Prop $Config.images 'composite_layout' '1x1'))"
+            New-MenuItem -Key 'voice'   -Label 'Voice / Audio'  -Value "$vModel  cleanup $vThresh dBFS"
+            New-MenuItem -Key 'images'  -Label 'Images/AI'      -Value "$iMode  $iProv  $iLay"
             New-MenuItem -Key 'style'   -Label 'Style lock'     -Value 'visual prompt style'
             New-MenuItem -Key 'paths'   -Label 'Paths'          -Value (Get-Prop $Config.paths 'output_folder')
-            New-MenuItem -Key 'video'   -Label 'Rendering'      -Value "$(Get-Prop $Config.video 'fps') fps  $(Get-Prop $Config.video 'codec')"
-            New-MenuItem -Key 'learn'   -Label 'Learning'       -Value $(if (Get-Prop $Config.learning 'enabled' $true) { 'enabled' } else { 'disabled' })
+            New-MenuItem -Key 'video'   -Label 'Rendering'      -Value "$vFps fps  $vCodec"
+            New-MenuItem -Key 'learn'   -Label 'Learning'       -Value $learnEnabled
             New-MenuItem -Key 'notify'  -Label 'Notifications'  -Value 'toast toggles'
-            New-MenuItem -Key 'runtime' -Label 'Runtime'        -Value "admin $(Get-Prop $Config.runtime 'run_as_admin' $false)  checks $(Get-Prop $Config.runtime 'startup_checks' $true)  theme $(Get-Prop $Config.runtime 'theme' 'soft_dark')"
+            New-MenuItem -Key 'runtime' -Label 'Runtime'        -Value "admin $rAdmin  checks $rCheck  theme $rTheme"
             New-MenuItem -Key 'models'  -Label 'Check/select models' -Value 'live provider list'
         )
         $dirtyText = if ($dirty) { 'Unsaved changes. ' } else { '' }

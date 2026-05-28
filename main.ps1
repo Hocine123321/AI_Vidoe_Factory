@@ -3,7 +3,8 @@ param([switch]$Settings)
 
 # Runtime PS7 check — #Requires -Version 7.0 silently kills window on PS5
 if ($PSVersionTable.PSVersion.Major -lt 7) {
-    Write-Host "`n  [ERROR] PowerShell 7 required. You are running PS $($PSVersionTable.PSVersion)." -ForegroundColor Red
+        $psv = $PSVersionTable.PSVersion
+        Write-Host "`n  [ERROR] PowerShell 7 required. You are running PS $psv." -ForegroundColor Red
     Write-Host "  Install PS7: https://github.com/PowerShell/PowerShell/releases" -ForegroundColor Yellow
     Write-Host "  Or use Launch.bat instead of running main.ps1 directly." -ForegroundColor Yellow
     cmd /c pause
@@ -44,10 +45,11 @@ $ERRORLOG = "$ROOT\error.log"
 trap {
     $msg = $_.Exception.Message
     $stk = $_.ScriptStackTrace
+    $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
 
     # Write to file FIRST — survives window close
     try {
-        "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] ERROR: $msg`n$stk`n" |
+        "[$ts] ERROR: $msg`n$stk`n" |
             Add-Content -Path $ERRORLOG -Encoding UTF8
     } catch {}
 
@@ -123,17 +125,17 @@ function Get-Config {
     # Top-level blocks
     foreach ($key in $defaults.Keys) {
         if (-not (& $hasProp $cfg $key)) {
-            $cfg | Add-Member -MemberType NoteProperty -Name $key `
-                -Value ($defaults[$key] | ConvertTo-Json -Depth 6 | ConvertFrom-Json) -Force
+            $val = $defaults[$key] | ConvertTo-Json -Depth 6 | ConvertFrom-Json
+            $cfg | Add-Member -MemberType NoteProperty -Name $key -Value $val -Force
             $changed = $true
         }
     }
 
-    # Nested: ai sub-objects (ensure these exist before migrating nested keys)
+    # Nested: ai sub-objects
     foreach ($sub in @('openai','gemini','huggingface')) {
         if (-not (& $hasProp $cfg.ai $sub)) {
-            $cfg.ai | Add-Member -MemberType NoteProperty -Name $sub `
-                -Value ($defaults.ai[$sub] | ConvertTo-Json | ConvertFrom-Json) -Force
+            $val = $defaults.ai[$sub] | ConvertTo-Json | ConvertFrom-Json
+            $cfg.ai | Add-Member -MemberType NoteProperty -Name $sub -Value $val -Force
             $changed = $true
         }
     }
@@ -141,14 +143,16 @@ function Get-Config {
     # Nested: property migrations for specific blocks
     foreach ($key in $defaults.ai.gemini.Keys) {
         if (-not (& $hasProp $cfg.ai.gemini $key)) {
-            $cfg.ai.gemini | Add-Member -MemberType NoteProperty -Name $key -Value $defaults.ai.gemini[$key] -Force
+            $val = $defaults.ai.gemini[$key]
+            $cfg.ai.gemini | Add-Member -MemberType NoteProperty -Name $key -Value $val -Force
             $changed = $true
         }
     }
 
     foreach ($key in $defaults.ai.huggingface.Keys) {
         if (-not (& $hasProp $cfg.ai.huggingface $key)) {
-            $cfg.ai.huggingface | Add-Member -MemberType NoteProperty -Name $key -Value $defaults.ai.huggingface[$key] -Force
+            $val = $defaults.ai.huggingface[$key]
+            $cfg.ai.huggingface | Add-Member -MemberType NoteProperty -Name $key -Value $val -Force
             $changed = $true
         }
     }
@@ -244,7 +248,8 @@ function Get-UiTheme {
     $preset = 'soft_dark'
     try {
         if ($Config -and $Config.PSObject.Properties['runtime'] -and $Config.runtime.PSObject.Properties['theme']) {
-            $preset = "$($Config.runtime.theme)"
+            $rTheme = $Config.runtime.theme
+            $preset = "$rTheme"
         }
     } catch {}
 
@@ -289,9 +294,10 @@ function Write-StatusBlock {
     $elSet = -not [string]::IsNullOrWhiteSpace($Config.api_keys.elevenlabs)
     $elStr = if ($elSet) { 'ready' } else { 'missing' }
     $elCol = if ($elSet) { $theme.Success } else { $theme.Warning }
+    $txtCol = $theme.Text
     Write-Host ''
     Write-Host '  STATUS' -ForegroundColor $theme.Accent
-    Write-Host ("  AI: {0}   Fallback: {1}   ElevenLabs: " -f $be, $fb) -NoNewline -ForegroundColor $theme.Text
+    Write-Host ("  AI: {0}   Fallback: {1}   ElevenLabs: " -f $be, $fb) -NoNewline -ForegroundColor $txtCol
     Write-Host $elStr -ForegroundColor $elCol
 }
 
@@ -311,14 +317,15 @@ function Show-MainMenu {
     param([object]$Config)
     Show-Banner -Config $Config
     $theme = Get-UiTheme -Config $Config
+    $txtCol = $theme.Text
     Write-Host ''
     Write-Host '  MAIN MENU' -ForegroundColor $theme.Accent
     Write-Host ''
-    Write-Host '  [1] Create New Video'    -ForegroundColor $theme.Text
-    Write-Host '  [2] Settings'            -ForegroundColor $theme.Text
-    Write-Host '  [3] Check Dependencies'  -ForegroundColor $theme.Text
-    Write-Host '  [4] Resume Unfinished Video' -ForegroundColor $theme.Text
-    Write-Host '  [Q] Quit'                -ForegroundColor $theme.Text
+    Write-Host '  [1] Create New Video'    -ForegroundColor $txtCol
+    Write-Host '  [2] Settings'            -ForegroundColor $txtCol
+    Write-Host '  [3] Check Dependencies'  -ForegroundColor $txtCol
+    Write-Host '  [4] Resume Unfinished Video' -ForegroundColor $txtCol
+    Write-Host '  [Q] Quit'                -ForegroundColor $txtCol
     Write-ControlBlock -Text '[number] Select option   [Q] Quit' -Config $Config
 }
 
@@ -346,11 +353,18 @@ function Invoke-ResumeMenu {
 
     Write-Host ''
     $theme = Get-UiTheme -Config $Config
-    Write-Host "  UNFINISHED VIDEOS ($($incomplete.Count))" -ForegroundColor $theme.Accent
+    $icount = $incomplete.Count
+    $accent = $theme.Accent
+    $txtCol = $theme.Text
+    Write-Host "  UNFINISHED VIDEOS ($icount)" -ForegroundColor $accent
     Write-Host ''
     for ($i = 0; $i -lt $incomplete.Count; $i++) {
+        $num = $i + 1
+        $topic = Format-UiText $incomplete[$i].Topic 42
+        $phase = $incomplete[$i].Phase
+        $age = $incomplete[$i].Age
         Write-Host ("  [{0}] {1,-42} phase: {2,-8} {3}" -f `
-            ($i+1), (Format-UiText $incomplete[$i].Topic 42), $incomplete[$i].Phase, $incomplete[$i].Age) -ForegroundColor $theme.Text
+            $num, $topic, $phase, $age) -ForegroundColor $txtCol
     }
     Write-ControlBlock -Text '[number] Resume video   [B] Back' -Config $Config
 
@@ -383,10 +397,11 @@ function Start-VideoPipeline {
     if ($ResumeState) {
         $projectPath = $ResumeState.ProjectPath
         $topic       = $ResumeState.Topic
-        $startFrom   = if ($PHASE_ORDER.ContainsKey($ResumeState.Phase)) { $PHASE_ORDER[$ResumeState.Phase] } else { 1 }
+        $rPhase      = $ResumeState.Phase
+        $startFrom   = if ($PHASE_ORDER.ContainsKey($rPhase)) { $PHASE_ORDER[$rPhase] } else { 1 }
         Show-Banner -Config $Config
         Write-Host "  Resuming: '$topic'" -ForegroundColor Yellow
-        Write-Host "  Starting from phase: $($ResumeState.Phase) ($startFrom/6)`n" -ForegroundColor White
+        Write-Host "  Starting from phase: $rPhase ($startFrom/6)`n" -ForegroundColor White
     } else {
         Show-Banner -Config $Config
         Write-Host ''
@@ -425,7 +440,8 @@ function Start-VideoPipeline {
 
             $editor = Get-PreferredEditor
             $eArgs  = $editor.Args + @($scriptPath)
-            Write-Host "    Opening in $($editor.Name)..." -ForegroundColor DarkGray
+            $eName = $editor.Name
+            Write-Host "    Opening in $eName..." -ForegroundColor DarkGray
 
             $orig = Get-Content $scriptPath -Raw          # capture BEFORE user edits
             (Start-Process -FilePath $editor.Cmd -ArgumentList $eArgs -PassThru).WaitForExit()
@@ -440,7 +456,8 @@ function Start-VideoPipeline {
             if ($choice -eq 'A') {
                 $approved = $true
                 Write-Host ("    Approved  [{0:mm\:ss}]" -f $sw.Elapsed) -ForegroundColor DarkGray
-                Write-Log -Level INFO -Message "Script approved after $([int]$sw.Elapsed.TotalSeconds)s" -LogPath $logPath
+                $elap = [int]$sw.Elapsed.TotalSeconds
+                Write-Log -Level INFO -Message "Script approved after ${elap}s" -LogPath $logPath
             } else {
                 $rejectionReason = (Read-Host '    Reason? (Enter to skip)').Trim()
                 Write-Host '    Regenerating...' -ForegroundColor DarkGray
@@ -471,13 +488,15 @@ function Start-VideoPipeline {
         $imageResult = Invoke-ImageGeneration -ProjectPath $projectPath -Config $Config -ExpectedCount $expectedCount
 
         if ($imageResult.Completed) {
-            Write-Host "    $($imageResult.Indexed) generated image(s) accepted. index.json written." -ForegroundColor Green
-            Write-Log -Level INFO -Message "Images generated: $($imageResult.Indexed)" -LogPath $logPath
+            $iCount = $imageResult.Indexed
+            Write-Host "    $iCount generated image(s) accepted. index.json written." -ForegroundColor Green
+            Write-Log -Level INFO -Message "Images generated: $iCount" -LogPath $logPath
         } else {
             $fallback = if ($Config.PSObject.Properties['images'] -and $Config.images.PSObject.Properties['fallback_to_manual']) { [bool]$Config.images.fallback_to_manual } else { $true }
             if (-not $fallback) {
                 if ($imageResult.PSObject.Properties['FatalError'] -and -not [string]::IsNullOrWhiteSpace($imageResult.FatalError)) {
-                    throw "Automatic image generation stopped: $($imageResult.FatalError)"
+                    $fErr = $imageResult.FatalError
+                    throw "Automatic image generation stopped: $fErr"
                 }
                 throw "Automatic image generation did not complete and manual fallback is disabled."
             }
@@ -516,7 +535,8 @@ function Start-VideoPipeline {
 
     Set-PipelineState -ProjectPath $projectPath -Phase 'complete'
     Send-Toast -Title 'Video Ready' -Message "$projectPath\master_output.mp4" -Config $Config -Key 'render_done'
-    Write-Log -Level INFO -Message "Pipeline complete: $($totalTimer.Elapsed.ToString('mm\:ss'))" -LogPath $logPath
+    $pElap = $totalTimer.Elapsed.ToString('mm\:ss')
+    Write-Log -Level INFO -Message "Pipeline complete: $pElap" -LogPath $logPath
 
     # ── Completion screen ─────────────────────────────────────────────────────
     Write-Host ''
@@ -559,7 +579,8 @@ try {
     if ($startupChecks -and $missing.Count -gt 0) {
         Show-Banner -Config $config
         Write-Host "  Welcome! Setup required before your first video." -ForegroundColor Yellow
-        Write-Host "  Missing: $($missing -join ', ')`n" -ForegroundColor Red
+        $mJoin = $missing -join ', '
+        Write-Host "  Missing: $mJoin`n" -ForegroundColor Red
         if ((Read-Host '  Open settings now? [Y/N]') -match '^[Yy]') {
             . "$ROOT\settings_menu.ps1"
             Invoke-SettingsMenu -Config $config -ConfigPath $configPath
@@ -567,7 +588,8 @@ try {
             $missing = @(Test-ConfigReady -Config $config)
         }
         if ($missing.Count -gt 0) {
-            Write-Host "`n  Still missing: $($missing -join ', ')." -ForegroundColor Red
+            $mJoin = $missing -join ', '
+            Write-Host "`n  Still missing: $mJoin." -ForegroundColor Red
             Write-Host '  Run main.ps1 again when ready.' -ForegroundColor DarkGray
             Read-Host '  Press Enter to exit'; exit 1
         }
@@ -621,7 +643,8 @@ try {
 } catch {
     $msg = $_.Exception.Message
     $stk = $_.ScriptStackTrace
-    try { "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] ERROR: $msg`n$stk`n" | Add-Content -Path $ERRORLOG -Encoding UTF8 } catch {}
+    $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    try { "[$ts] ERROR: $msg`n$stk`n" | Add-Content -Path $ERRORLOG -Encoding UTF8 } catch {}
     Write-Host "`n  [ERROR] $msg" -ForegroundColor Red
     Write-Host "  Full detail saved to: $ERRORLOG" -ForegroundColor DarkGray
     if ($env:VAF_DEBUG) { Write-Host $stk -ForegroundColor DarkRed }

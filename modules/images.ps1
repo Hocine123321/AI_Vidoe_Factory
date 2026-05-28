@@ -16,7 +16,10 @@ function Get-CompositeLayoutParts {
     param([object]$Settings)
 
     $layout = ''
-    if ($Settings -and $Settings.PSObject.Properties['CompositeLayout']) { $layout = "$($Settings.CompositeLayout)" }
+    if ($Settings -and $Settings.PSObject.Properties['CompositeLayout']) {
+        $slay = $Settings.CompositeLayout
+        $layout = "$slay"
+    }
     if ([string]::IsNullOrWhiteSpace($layout) -and $Settings -and $Settings.PSObject.Properties['CompositeGrid']) {
         $grid = [Math]::Max(1, [int]$Settings.CompositeGrid)
         $layout = "${grid}x${grid}"
@@ -81,7 +84,8 @@ function Get-ImagePrompts {
             $i = 0
             return @($json | ForEach-Object {
                 $i++
-                $prompt = if ($_.PSObject.Properties['prompt']) { "$($_.prompt)" } else { "$_" }
+                $item = $_
+                $prompt = if ($item.PSObject.Properties['prompt']) { $p = $item.prompt; "$p" } else { "$item" }
                 if (-not [string]::IsNullOrWhiteSpace($prompt)) {
                     $indices = @()
                     if ($_.PSObject.Properties['indices']) {
@@ -208,8 +212,8 @@ function Get-CompactApiErrorMessage {
     $trimmed = $Message.Trim()
     try {
         $json = $trimmed | ConvertFrom-Json
-        if ($json.error -and $json.error.message) { return "$($json.error.message)" }
-        if ($json.detail -and $json.detail.message) { return "$($json.detail.message)" }
+        if ($json.error -and $json.error.message) { $msg = $json.error.message; return "$msg" }
+        if ($json.detail -and $json.detail.message) { $msg = $json.detail.message; return "$msg" }
     } catch {}
     $oneLine = ($trimmed -replace '\s+', ' ').Trim()
     if ($oneLine.Length -gt 180) { return $oneLine.Substring(0, 180) + '...' }
@@ -303,14 +307,17 @@ function New-CompositeImagePrompt {
     $parts = @()
     $panelCount = $Rows * $Cols
     for ($i = 0; $i -lt $panelCount; $i++) {
-        $label = if ($i -lt $labels.Count) { $labels[$i] } else { "panel $($i + 1)" }
+        $num = $i + 1
+        $label = if ($i -lt $labels.Count) { $labels[$i] } else { "panel $num" }
         if ($i -lt $Items.Count) {
-            $parts += "$label panel: $($Items[$i].Prompt)"
+            $p = $Items[$i].Prompt
+            $parts += "$label panel: $p"
         } else {
             $parts += "$label panel: simple empty matching background, no subject"
         }
     }
-    return "Create one clean ${Rows}x${Cols} image grid with exactly $panelCount equal rectangular panels and thin clear separation lines. Each panel is a separate scene. No text, no labels, no numbers, no logos. $($parts -join '; ')."
+    $pjoin = $parts -join '; '
+    return "Create one clean ${Rows}x${Cols} image grid with exactly $panelCount equal rectangular panels and thin clear separation lines. Each panel is a separate scene. No text, no labels, no numbers, no logos. $pjoin."
 }
 
 function Test-FinalImagesExist {
@@ -454,6 +461,7 @@ function Invoke-GeminiImageGeneration {
     $auth = Get-GeminiRestAuth -Config $Config
 
     $modelId = $Settings.Model -replace '^models/', ''
+    $modelIdEnc = [uri]::EscapeDataString($modelId)
     $body = @{
         instances = @(
             @{ prompt = $Prompt }
@@ -465,7 +473,7 @@ function Invoke-GeminiImageGeneration {
         }
     } | ConvertTo-Json -Depth 8
 
-    $uri = "https://generativelanguage.googleapis.com/v1beta/models/$([uri]::EscapeDataString($modelId)):predict"
+    $uri = "https://generativelanguage.googleapis.com/v1beta/models/$modelIdEnc:predict"
     $res = Invoke-RestMethod -Uri $uri -Method POST `
         -Headers $auth.Headers `
         -ContentType 'application/json' -Body $body -TimeoutSec 180 -EA Stop
@@ -502,13 +510,18 @@ function Invoke-PollinationsImageGeneration {
     }
     $pairs = @()
     foreach ($key in $query.Keys) {
-        $value = "$($query[$key])"
+        $qval = $query[$key]
+        $value = "$qval"
         if (-not [string]::IsNullOrWhiteSpace($value)) {
-            $pairs += "$([uri]::EscapeDataString($key))=$([uri]::EscapeDataString($value))"
+            $kEnc = [uri]::EscapeDataString($key)
+            $vEnc = [uri]::EscapeDataString($value)
+            $pairs += "$kEnc=$vEnc"
         }
     }
 
-    $uri = "https://gen.pollinations.ai/image/$([uri]::EscapeDataString($Prompt))?$($pairs -join '&')"
+    $promptEnc = [uri]::EscapeDataString($Prompt)
+    $queryStr = $pairs -join '&'
+    $uri = "https://gen.pollinations.ai/image/$promptEnc?$queryStr"
     $headers = @{}
     $key = Get-VafProp $Config.api_keys 'pollinations' ''
     if (-not [string]::IsNullOrWhiteSpace($key)) { $headers['Authorization'] = "Bearer $key" }
@@ -560,7 +573,7 @@ function Write-ImageIndexFromFolder {
         Get-ChildItem $dir -File -EA SilentlyContinue |
         Where-Object { $_.Extension -match '^\.(png|jpg|jpeg)$' -and (Test-ValidGeneratedImage $_.FullName) } |
         Sort-Object Name |
-        ForEach-Object { "images\$($_.Name)" }
+        ForEach-Object { $name = $_.Name; "images\$name" }
     )
 
     if ($ExpectedCount -gt 0) { $images = @($images | Select-Object -First $ExpectedCount) }
@@ -595,7 +608,12 @@ function Invoke-ImageGeneration {
     if (-not $targetCount -or $targetCount -lt 1) { $targetCount = $prompts.Count }
 
     $layout = Get-CompositeLayoutParts -Settings $settings
-    Write-Log -Level INFO -Message "Image generation started: provider=$($settings.Provider), model=$($settings.Model), prompts=$($prompts.Count), workItems=$($workItems.Count), compositeLayout=$($layout.Layout)" -LogPath $logPath
+    $sProv = $settings.Provider
+    $sModel = $settings.Model
+    $pCount = $prompts.Count
+    $wCount = $workItems.Count
+    $lLay = $layout.Layout
+    Write-Log -Level INFO -Message "Image generation started: provider=$sProv, model=$sModel, prompts=$pCount, workItems=$wCount, compositeLayout=$lLay" -LogPath $logPath
     $generated = @()
     $failed = @()
     $fatalError = ''
@@ -622,22 +640,32 @@ function Invoke-ImageGeneration {
             if ($item.IsComposite) {
                 $compositeDir = Join-Path $dir '_composites'
                 New-Item -ItemType Directory -Force -Path $compositeDir | Out-Null
-                $fileName = 'batch_{0:D3}.{1}' -f $item.BatchIndex, $extension
+                $bIdx = $item.BatchIndex
+                $fileName = 'batch_{0:D3}.{1}' -f $bIdx, $extension
                 $outPath = Join-Path $compositeDir $fileName
             } else {
-                $fileName = '{0:D3}.{1}' -f $indices[0], $extension
+                $iIdx = $indices[0]
+                $fileName = '{0:D3}.{1}' -f $iIdx, $extension
                 $outPath = Join-Path $dir $fileName
             }
             $prompt = if ($attempt -eq 1) { $item.Prompt } else { Get-RepairedImagePrompt -Prompt $item.Prompt }
-            $label = if ($item.IsComposite) { "Batch $($item.BatchIndex)/$($workItems.Count)" } else { "Image $($indices[0])/$targetCount" }
-            $spin = Start-Spinner ("{0} ({1}, attempt {2}/{3})" -f $label, $settings.Provider, $attempt, ($settings.Retries + 1))
+
+            $wCount = $workItems.Count
+            $bIdx = $item.BatchIndex
+            $i0 = $indices[0]
+            $label = if ($item.IsComposite) { "Batch $bIdx/$wCount" } else { "Image $i0/$targetCount" }
+
+            $sProv = $settings.Provider
+            $tries = $settings.Retries + 1
+            $spin = Start-Spinner ("{0} ({1}, attempt {2}/{3})" -f $label, $sProv, $attempt, $tries)
             try {
-                switch ($settings.Provider) {
+                $sprov = $settings.Provider
+                switch ($sprov) {
                     'openai'       { Invoke-OpenAIImageGeneration -Prompt $prompt -OutPath $outPath -Config $Config -Settings $settings }
                     'gemini'       { Invoke-GeminiImageGeneration -Prompt $prompt -OutPath $outPath -Config $Config -Settings $settings }
                     'pollinations' { Invoke-PollinationsImageGeneration -Prompt $prompt -OutPath $outPath -Config $Config -Settings $settings }
                     'huggingface'  { Invoke-HuggingFaceImageGeneration -Prompt $prompt -OutPath $outPath -Config $Config -Settings $settings }
-                    default  { throw "Unknown image provider '$($settings.Provider)'." }
+                    default  { throw "Unknown image provider '$sprov'." }
                 }
                 if (-not (Test-ValidGeneratedImage -Path $outPath)) { throw "Provider returned a file that is not a valid image." }
                 if ($item.IsComposite) {
@@ -668,7 +696,8 @@ function Invoke-ImageGeneration {
 
                 if ((Test-HardImageProviderError -Message $lastError) -and $settings.Provider -ne 'openai' -and $settings.AutoProviderFallback -and (Test-CanFallbackToOpenAIImages -Config $Config)) {
                     Write-Host '    Switching image generation to OpenAI fallback...' -ForegroundColor Yellow
-                    Write-Log -Level WARN -Message "Switching image generation fallback to OpenAI after provider error: $(Get-CompactApiErrorMessage -Message $lastError)" -LogPath $logPath
+                    $compactErr = Get-CompactApiErrorMessage -Message $lastError
+                    Write-Log -Level WARN -Message "Switching image generation fallback to OpenAI after provider error: $compactErr" -LogPath $logPath
                     $settings = New-OpenAIImageFallbackSettings -CurrentSettings $settings
                     $attempt = 0
                     continue

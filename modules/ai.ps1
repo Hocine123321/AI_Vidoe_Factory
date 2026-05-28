@@ -29,9 +29,10 @@ function Get-GeminiRestAuth {
         ''
     }
     if ([string]::IsNullOrWhiteSpace($key)) { throw "Gemini API key is missing." }
+    $keyEnc = [uri]::EscapeDataString($key)
     return [PSCustomObject]@{
         Headers = @{ 'x-goog-api-key' = $key }
-        Query   = "key=$([uri]::EscapeDataString($key))"
+        Query   = "key=$keyEnc"
     }
 }
 
@@ -100,9 +101,10 @@ function Invoke-GeminiBackend {
     $spin = Start-Spinner "$Label ($model)"
     try {
         $modelId = $model -replace '^models/', ''
+        $modelIdEnc = [uri]::EscapeDataString($modelId)
         $auth = Get-GeminiRestAuth -Config $Config
-        $uri = "https://generativelanguage.googleapis.com/v1beta/models/$([uri]::EscapeDataString($modelId)):generateContent"
-        if ($auth.Query) { $uri += "?$($auth.Query)" }
+        $uri = "https://generativelanguage.googleapis.com/v1beta/models/$modelIdEnc:generateContent"
+        if ($auth.Query) { $q = $auth.Query; $uri += "?$q" }
         $body = @{
             contents = @(
                 @{
@@ -242,10 +244,12 @@ function Invoke-AI {
             return $result
         }
 
-        Write-Log -Level WARN -Message "AI call failed (exit $($result.ExitCode)) via ${backend}: $($result.Output)" -LogPath $LogPath
+        $resExit = $result.ExitCode
+        $resOut  = $result.Output
+        Write-Log -Level WARN -Message "AI call failed (exit $resExit) via ${backend}: $resOut" -LogPath $LogPath
 
         # Quota path — offer fallback
-        if ((Test-IsQuotaError -Output $result.Output) -and $Config.ai.auto_fallback) {
+        if ((Test-IsQuotaError -Output $resOut) -and $Config.ai.auto_fallback) {
             $fallback = $Config.ai.fallback
             if ($fallback -eq $backend) { break }
 
@@ -270,7 +274,8 @@ function Invoke-AI {
         }
     }
 
-    throw "[AI] $backend failed after $MaxRetries attempt(s): $($result.Output)"
+    $finalOut = $result.Output
+    throw "[AI] $backend failed after $MaxRetries attempt(s): $finalOut"
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -385,8 +390,10 @@ Requirements:
     $delta  = $stats.EstSeconds - 30
     $dStr   = if ($delta -gt 5) { "+${delta}s — too long" } elseif ($delta -lt -5) { "${delta}s — too short" } else { 'on target ✓' }
     $dColor = if ([Math]::Abs($delta) -le 5) { 'Green' } else { 'Yellow' }
-    Write-Host ("    Words: {0}  |  Est. duration: ~{1}s  ({2})" -f $stats.Words, $stats.EstSeconds, $dStr) -ForegroundColor $dColor
-    Write-Log -Level INFO -Message "Script generated: $($stats.Words) words, ~$($stats.EstSeconds)s" -LogPath $logPath
+    $sWords = $stats.Words
+    $sEst   = $stats.EstSeconds
+    Write-Host ("    Words: {0}  |  Est. duration: ~{1}s  ({2})" -f $sWords, $sEst, $dStr) -ForegroundColor $dColor
+    Write-Log -Level INFO -Message "Script generated: $sWords words, ~$sEst s" -LogPath $logPath
 
     return $scriptPath
 }
@@ -404,12 +411,14 @@ function Invoke-PromptExtraction {
     $rows = 1
     $cols = 1
     try {
+        $cimgs = $Config.images
         if ($Config.PSObject.Properties['images']) {
-            if ($Config.images.PSObject.Properties['composite_layout'] -and "$($Config.images.composite_layout)" -match '^(\d+)x(\d+)$') {
+            $clayout = $cimgs.composite_layout
+            if ($cimgs.PSObject.Properties['composite_layout'] -and "$clayout" -match '^(\d+)x(\d+)$') {
                 $rows = [Math]::Min(2, [Math]::Max(1, [int]$Matches[1]))
                 $cols = [Math]::Min(2, [Math]::Max(1, [int]$Matches[2]))
-            } elseif ($Config.images.PSObject.Properties['composite_grid']) {
-                $grid = [Math]::Min(2, [Math]::Max(1, [int]$Config.images.composite_grid))
+            } elseif ($cimgs.PSObject.Properties['composite_grid']) {
+                $grid = [Math]::Min(2, [Math]::Max(1, [int]$cimgs.composite_grid))
                 $rows = $grid
                 $cols = $grid
             }
@@ -446,18 +455,19 @@ RULES:
 - If the final batch has fewer than $panelCount scenes, fill unused panels with a simple matching empty background, but do NOT include those filler panels in "indices".
 - Every panel must be a separate scene with clear separation lines.
 - No text, labels, numbers, logos, watermarks, or captions inside the image.
-- Append this exact style tag inside every panel description: "$($Config.style_lock)"
+- Append this exact style tag inside every panel description: "$slock"
 - Keep each batch prompt concise enough for an image API URL.
 
 Example:
 [
   {
     "indices": [1,2],
-    "prompt": "Create one clean $layoutText image grid with $panelCount equal panels and thin clear separation lines. Use panel positions: $positions. First panel: ... $($Config.style_lock). Second panel: ... $($Config.style_lock). No text, labels, numbers, logos, or watermarks."
+    "prompt": "Create one clean $layoutText image grid with $panelCount equal panels and thin clear separation lines. Use panel positions: $positions. First panel: ... $slock. Second panel: ... $slock. No text, labels, numbers, logos, or watermarks."
   }
 ]
 "@
     } else {
+        $slock = $Config.style_lock
         $prompt = @"
 Read the following video script and extract one image generation prompt per timestamp block.
 
@@ -467,10 +477,10 @@ $scriptText
 RULES:
 - Exactly one prompt per [MM:SS - MM:SS] block.
 - Each prompt describes a single concrete visual subject — no abstract concepts, no crowds.
-- Append this exact style tag to every prompt: "$($Config.style_lock)"
+- Append this exact style tag to every prompt: "$slock"
 - Output ONLY a numbered list, one prompt per line. Example:
-  1. A glowing CPU chip on a dark surface. $($Config.style_lock)
-  2. A speedometer pinned to maximum. $($Config.style_lock)
+  1. A glowing CPU chip on a dark surface. $slock
+  2. A speedometer pinned to maximum. $slock
 - No headers, no preamble, no markdown, no extra text.
 "@
     }
@@ -521,28 +531,34 @@ function Invoke-Learning {
     $diff   = @(for ($i = 0; $i -lt $max; $i++) {
         $o = if ($i -lt $oLines.Count) { $oLines[$i].Trim() } else { '(removed)' }
         $e = if ($i -lt $eLines.Count) { $eLines[$i].Trim() } else { '(removed)' }
-        if ($o -ne $e) { "Line $($i+1):`n  - $o`n  + $e" }
+        $lineNum = $i + 1
+        if ($o -ne $e) { "Line $lineNum:`n  - $o`n  + $e" }
     })
     if ($diff.Count -eq 0) { return }
 
     $ctx     = "$Root\context"
     $logPath = "$Root\learning.log"
 
+    $diffJoin = $diff -join "`n"
+    $sysTxt = Get-Content "$ctx\System.md" -Raw -EA SilentlyContinue
+    $sceneTxt = Get-Content "$ctx\scene_descriptions.md" -Raw -EA SilentlyContinue
+    $exTxt = Get-Content "$ctx\script_examples.md" -Raw -EA SilentlyContinue
+
     $prompt = @"
 You are a self-improving script generation system. A human editor modified a generated script.
 Your job: analyze their edits and surgically update the context files to permanently encode their preferences.
 
 === DIFFS (- removed, + added) ===
-$($diff -join "`n")
+$diffJoin
 
 === CURRENT System.md ===
-$(Get-Content "$ctx\System.md" -Raw -EA SilentlyContinue)
+$sysTxt
 
 === CURRENT scene_descriptions.md ===
-$(Get-Content "$ctx\scene_descriptions.md" -Raw -EA SilentlyContinue)
+$sceneTxt
 
 === CURRENT script_examples.md ===
-$(Get-Content "$ctx\script_examples.md" -Raw -EA SilentlyContinue)
+$exTxt
 
 RULES:
 - Update ONLY files where a genuine preference is revealed by the edits.
@@ -551,8 +567,10 @@ RULES:
 - Save the updated file(s) directly.
 "@
 
-    Write-Log -Level INFO -Message "Learning: $($diff.Count) diff(s) detected" -LogPath $logPath
-    Write-Log -Level DEBUG -Message ($diff -join ' | ') -LogPath $logPath
+    $dcount = $diff.Count
+    Write-Log -Level INFO -Message "Learning: $dcount diff(s) detected" -LogPath $logPath
+    $dpipe = $diff -join ' | '
+    Write-Log -Level DEBUG -Message $dpipe -LogPath $logPath
 
     Invoke-AI -Prompt $prompt -WorkDir $ctx -Config $Config -Label 'Updating context' -LogPath $logPath | Out-Null
     Write-Host "    Context files updated from your edits." -ForegroundColor DarkGreen
