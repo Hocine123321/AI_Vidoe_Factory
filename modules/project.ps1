@@ -343,13 +343,13 @@ function Wait-ForImages {
     }
     Start-Process explorer.exe $dir   # open folder for convenience
 
-    $watcher = [System.IO.FileSystemWatcher]@{
-        Path                  = $dir
-        Filter                = '*.*'
-        IncludeSubdirectories = $false
-        EnableRaisingEvents   = $true
-        NotifyFilter          = [System.IO.NotifyFilters]'FileName,LastWrite'
-    }
+    # Build via constructor so Path is set before EnableRaisingEvents — a
+    # hashtable initializer assigns properties in an unspecified order and can
+    # enable the watcher while Path is still empty, throwing "Error reading the directory".
+    $watcher = [System.IO.FileSystemWatcher]::new($dir, '*.*')
+    $watcher.IncludeSubdirectories = $false
+    $watcher.NotifyFilter          = [System.IO.NotifyFilters]'FileName,LastWrite'
+    $watcher.EnableRaisingEvents    = $true
 
     $getCount = { @(Get-ChildItem $dir -File -EA SilentlyContinue | Where-Object { $_.Extension -match '^\.(png|jpg|jpeg)$' }).Count }
 
