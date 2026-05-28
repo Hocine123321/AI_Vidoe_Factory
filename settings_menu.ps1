@@ -7,6 +7,10 @@
 # HELPERS  ==================== StrictMode-safe property access for PSCustomObjects from JSON
 # ===========================================================================
 
+# Per-session cache of live provider model lists, keyed by provider/list name.
+# Avoids re-hitting provider APIs every time a model picker is opened.
+$script:ModelCache = @{}
+
 function Set-Prop {
     param([ValidateNotNull()][object]$Obj, [ValidateNotNullOrEmpty()][string]$Name, $Value)
     $Obj | Add-Member -MemberType NoteProperty -Name $Name -Value $Value -Force
@@ -342,13 +346,14 @@ function Get-FallbackModelCatalog {
 
 function Get-LiveGeminiModels {
     param([object]$Config)
+    if ($script:ModelCache.ContainsKey('gemini')) { return $script:ModelCache['gemini'] }
 
     try {
         $key = Get-Prop $Config.api_keys 'gemini' ''
         if ([string]::IsNullOrWhiteSpace($key)) { return @() }
         $uri = "https://generativelanguage.googleapis.com/v1beta/models?key=$([uri]::EscapeDataString($key))"
         $res = Invoke-RestMethod -Uri $uri -Method GET -TimeoutSec 20 -EA Stop
-        return @(
+        $models = @(
             $res.models |
             Where-Object {
                 $_.name -and
@@ -362,6 +367,8 @@ function Get-LiveGeminiModels {
             Where-Object { $_.Id -notmatch 'image|imagen|embedding|audio|tts|veo|vision' } |
             Sort-Object Id -Unique
         )
+        if ($models.Count -gt 0) { $script:ModelCache['gemini'] = $models }
+        return $models
     } catch {
         return @()
     }
@@ -369,6 +376,7 @@ function Get-LiveGeminiModels {
 
 function Get-LiveOpenAIModels {
     param([object]$Config)
+    if ($script:ModelCache.ContainsKey('openai')) { return $script:ModelCache['openai'] }
     $key = Get-Prop $Config.api_keys 'openai' ''
     if ([string]::IsNullOrWhiteSpace($key)) { return @() }
 
@@ -376,7 +384,7 @@ function Get-LiveOpenAIModels {
         $res = Invoke-RestMethod -Uri 'https://api.openai.com/v1/models' -Method GET `
             -Headers @{ Authorization = "Bearer $key" } -TimeoutSec 20 -EA Stop
         $blocked = 'audio|tts|transcribe|whisper|embedding|moderation|image|dall|sora|realtime'
-        return @(
+        $models = @(
             $res.data |
             Where-Object {
                 $_.id -and
@@ -388,6 +396,8 @@ function Get-LiveOpenAIModels {
                 [PSCustomObject]@{ Id=$_.id; Label=$_.id; Note='live from OpenAI API' }
             }
         )
+        if ($models.Count -gt 0) { $script:ModelCache['openai'] = $models }
+        return $models
     } catch {
         return @()
     }
@@ -395,11 +405,12 @@ function Get-LiveOpenAIModels {
 
 function Get-LiveHuggingFaceModels {
     param([object]$Config)
+    if ($script:ModelCache.ContainsKey('huggingface_text')) { return $script:ModelCache['huggingface_text'] }
     try {
         $amp = [char]38
         $uri = "https://huggingface.co/api/models?pipeline_tag=text-generation${amp}sort=downloads${amp}direction=-1${amp}limit=20"
         $res = Invoke-RestMethod -Uri $uri -Method GET -TimeoutSec 20 -EA Stop
-        return @(
+        $models = @(
             $res | ForEach-Object {
                 $dl = Get-Prop $_ 'downloads' 0
                 $dlStr = Format-LargeCount $dl
@@ -410,6 +421,8 @@ function Get-LiveHuggingFaceModels {
                 }
             }
         )
+        if ($models.Count -gt 0) { $script:ModelCache['huggingface_text'] = $models }
+        return $models
     } catch {
         return @()
     }
@@ -754,18 +767,21 @@ function Get-FallbackImageModelCatalog {
 
 function Get-LiveOpenAIImageModels {
     param([object]$Config)
+    if ($script:ModelCache.ContainsKey('openai_image')) { return $script:ModelCache['openai_image'] }
     $key = Get-Prop $Config.api_keys 'openai' ''
     if ([string]::IsNullOrWhiteSpace($key)) { return @() }
 
     try {
         $res = Invoke-RestMethod -Uri 'https://api.openai.com/v1/models' -Method GET `
             -Headers @{ Authorization = "Bearer $key" } -TimeoutSec 20 -EA Stop
-        return @(
+        $models = @(
             $res.data |
             Where-Object { $_.id -match '^(gpt-image|dall-e)' } |
             Sort-Object created -Descending |
             ForEach-Object { [PSCustomObject]@{ Id=$_.id; Label=$_.id; Note='live from OpenAI API' } }
         )
+        if ($models.Count -gt 0) { $script:ModelCache['openai_image'] = $models }
+        return $models
     } catch {
         return @()
     }
@@ -773,13 +789,14 @@ function Get-LiveOpenAIImageModels {
 
 function Get-LiveGeminiImageModels {
     param([object]$Config)
+    if ($script:ModelCache.ContainsKey('gemini_image')) { return $script:ModelCache['gemini_image'] }
 
     try {
         $key = Get-Prop $Config.api_keys 'gemini' ''
         if ([string]::IsNullOrWhiteSpace($key)) { return @() }
         $uri = "https://generativelanguage.googleapis.com/v1beta/models?key=$([uri]::EscapeDataString($key))"
         $res = Invoke-RestMethod -Uri $uri -Method GET -TimeoutSec 20 -EA Stop
-        return @(
+        $models = @(
             $res.models |
             Where-Object { $_.name -and $_.name -match 'image|imagen' } |
             ForEach-Object {
@@ -788,6 +805,8 @@ function Get-LiveGeminiImageModels {
             } |
             Sort-Object Id -Unique
         )
+        if ($models.Count -gt 0) { $script:ModelCache['gemini_image'] = $models }
+        return $models
     } catch {
         return @()
     }
@@ -795,6 +814,7 @@ function Get-LiveGeminiImageModels {
 
 function Get-LivePollinationsImageModels {
     param([object]$Config)
+    if ($script:ModelCache.ContainsKey('pollinations_image')) { return $script:ModelCache['pollinations_image'] }
 
     try {
         $headers = @{}
@@ -802,7 +822,7 @@ function Get-LivePollinationsImageModels {
         if (-not [string]::IsNullOrWhiteSpace($key)) { $headers['Authorization'] = "Bearer $key" }
         $res = Invoke-RestMethod -Uri 'https://gen.pollinations.ai/image/models' -Method GET `
             -Headers $headers -TimeoutSec 20 -EA Stop
-        return @(
+        $models = @(
             $res |
             Where-Object {
                 $_.name -and (
@@ -825,6 +845,8 @@ function Get-LivePollinationsImageModels {
             } |
             Sort-Object Id -Unique
         )
+        if ($models.Count -gt 0) { $script:ModelCache['pollinations_image'] = $models }
+        return $models
     } catch {
         return @()
     }
@@ -832,12 +854,13 @@ function Get-LivePollinationsImageModels {
 
 function Get-LiveHuggingFaceImageModels {
     param([object]$Config)
+    if ($script:ModelCache.ContainsKey('huggingface_image')) { return $script:ModelCache['huggingface_image'] }
     try {
         $amp = [char]38
         $uri = "https://huggingface.co/api/models?pipeline_tag=text-to-image${amp}sort=downloads${amp}direction=-1${amp}limit=20"
         $res = Invoke-RestMethod -Uri $uri -Method GET -TimeoutSec 20 -EA Stop
         $list = @($res)
-        return @(
+        $models = @(
             $list | ForEach-Object {
                 $dl = Get-Prop $_ 'downloads' 0
                 $dlStr = Format-LargeCount $dl
@@ -850,6 +873,8 @@ function Get-LiveHuggingFaceImageModels {
                 }
             } | Where-Object { -not [string]::IsNullOrWhiteSpace($_.Id) }
         )
+        if ($models.Count -gt 0) { $script:ModelCache['huggingface_image'] = $models }
+        return $models
     } catch {
         return @()
     }
