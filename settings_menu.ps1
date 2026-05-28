@@ -21,6 +21,16 @@ function Get-Prop {
     return $v
 }
 
+function Normalize-AIBackend {
+    param([string]$Backend)
+    if ([string]::IsNullOrWhiteSpace($Backend)) { return 'openai' }
+    switch ($Backend.ToLower()) {
+        'codex' { return 'openai' }
+        'gpt3'  { return 'openai' }
+        default { return $Backend.ToLower() }
+    }
+}
+
 function Mask-Key {
     param([string]$Key)
     if ([string]::IsNullOrWhiteSpace($Key)) { return '[NOT SET]' }
@@ -97,7 +107,44 @@ function Get-ImageTokenText {
         return 'Tokens: n/a, Pollinations uses provider credits'
     }
 
+    if ($provider -eq 'huggingface') {
+        return 'Tokens: n/a — Hugging Face Inference API (per model)'
+    }
+
     return 'Tokens: reported by OpenAI after generation'
+}
+
+function Get-MenuPanelLayout {
+    param([switch]$WideModelList)
+
+    $inner = 71
+    try {
+        $consoleW = $Host.UI.RawUI.WindowSize.Width
+        if ($consoleW -gt 84) { $inner = [Math]::Min(116, $consoleW - 8) }
+    } catch {}
+
+    if ($WideModelList) {
+        $hintW = 24
+        $labelW = 14
+        $numW = 5
+        $valueW = [Math]::Max(40, $inner - $numW - $labelW - $hintW - 2)
+        return [PSCustomObject]@{ Inner = $inner; NumW = $numW; LabelW = $labelW; ValueW = $valueW; HintW = $hintW }
+    }
+
+    $hintW = 18
+    $labelW = 16
+    $numW = 5
+    $valueW = [Math]::Max(28, $inner - $numW - $labelW - $hintW - 2)
+    return [PSCustomObject]@{ Inner = $inner; NumW = $numW; LabelW = $labelW; ValueW = $valueW; HintW = $hintW }
+}
+
+function Fit-MenuField {
+    param([string]$Text, [int]$Width)
+    $s = if ($null -eq $Text) { '' } else { ("$Text" -replace '\s+', ' ').Trim() }
+    if ($Width -le 0) { return '' }
+    if ($s.Length -le $Width) { return $s }
+    if ($Width -le 3) { return $s.Substring(0, $Width) }
+    return $s.Substring(0, $Width - 3) + '...'
 }
 
 function Get-UiTheme {
@@ -144,9 +191,45 @@ function Get-MenuControlsText {
 
 function Write-MenuControls {
     param([string]$Text, [object]$Config = $null, [int]$Page = 0, [int]$PageCount = 1)
-    $theme = Get-UiTheme -Config $Config
-    Write-Host ("  Controls: {0}" -f $Text) -ForegroundColor $theme.Note -NoNewline
-    if ($PageCount -gt 1) { Write-Host ("    (Page {0}/{1})" -f ($Page + 1), $PageCount) -ForegroundColor $theme.Muted } else { Write-Host "" }
+    $uiTheme = Get-UiTheme -Config $Config
+    Write-Host ("  Controls: {0}" -f $Text) -ForegroundColor $uiTheme.Note -NoNewline
+    if ($PageCount -gt 1) { Write-Host ("    (Page {0}/{1})" -f ($Page + 1), $PageCount) -ForegroundColor $uiTheme.Muted } else { Write-Host "" }
+}
+
+function Write-SettingsMenuPanel {
+    param(
+        [string]$Title,
+        [string]$Subtitle,
+        [object[]]$Rows,
+        [object]$UiTheme,
+        [object]$Layout = $null
+    )
+    if (-not $Layout) { $Layout = Get-MenuPanelLayout }
+    $border = '-' * $Layout.Inner
+    $titleFmt = "  | {0,-$($Layout.Inner)} |"
+    Write-Host "  +$border+" -ForegroundColor $UiTheme.Note
+    Write-Host ($titleFmt -f $Title.ToUpper()) -ForegroundColor $UiTheme.Accent
+    if ($Subtitle) {
+        Write-Host ($titleFmt -f (Fit-MenuField $Subtitle $Layout.Inner)) -ForegroundColor $UiTheme.Muted
+    }
+    Write-Host "  +$border+" -ForegroundColor $UiTheme.Note
+    foreach ($row in $Rows) {
+        if ($row.IsHeader) {
+            Write-Host ($titleFmt -f (Fit-MenuField $row.Label.ToUpper() $Layout.Inner)) -ForegroundColor $UiTheme.Accent
+            continue
+        }
+        $label = Fit-MenuField $row.Label $Layout.LabelW
+        $value = Fit-MenuField $row.Value $Layout.ValueW
+        $hint  = Fit-MenuField $row.Hint $Layout.HintW
+        Write-Host '  |' -NoNewline -ForegroundColor $UiTheme.Note
+        Write-Host ("{0,$($Layout.NumW)} " -f $row.Number) -ForegroundColor $UiTheme.Accent -NoNewline
+        Write-Host ("{0,-$($Layout.LabelW)}" -f $label) -ForegroundColor $UiTheme.Text -NoNewline
+        Write-Host ' ' -NoNewline
+        Write-Host ("{0,-$($Layout.ValueW)}" -f $value) -ForegroundColor $UiTheme.Note -NoNewline
+        Write-Host (" {0,-$($Layout.HintW)}" -f $hint) -ForegroundColor $UiTheme.Muted -NoNewline
+        Write-Host ' |' -ForegroundColor $UiTheme.Note
+    }
+    Write-Host "  +$border+" -ForegroundColor $UiTheme.Note
 }
 
 function Invoke-NumberedMenu {
@@ -165,45 +248,35 @@ function Invoke-NumberedMenu {
     $page = 0
     $pageCount = [Math]::Max(1, [Math]::Ceiling($Items.Count / $PageSize))
     $controls = Get-MenuControlsText -PageCount $pageCount -AllowSave:$AllowSave -AllowQuit:$AllowQuit -AllowManual:$AllowManual
-    $theme = Get-UiTheme -Config $Config
+    $panelLayout = Get-MenuPanelLayout -WideModelList:($Title -match 'MODELS')
     while ($true) {
+        $uiTheme = Get-UiTheme -Config $Config
         Show-SettingsBanner
-        Write-Host "  â•­â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â•®" -ForegroundColor $theme.Note
-        Write-Host "  â”‚ " -NoNewline -ForegroundColor $theme.Note; Write-Host ("{0,-71}" -f $Title.ToUpper()) -ForegroundColor $theme.Accent -NoNewline; Write-Host " â”‚" -ForegroundColor $theme.Note
-        if ($Subtitle) {
-            Write-Host "  â”‚ " -NoNewline -ForegroundColor $theme.Note; Write-Host ("{0,-71}" -f (Format-MenuText $Subtitle 71)) -ForegroundColor $theme.Muted -NoNewline; Write-Host " â”‚" -ForegroundColor $theme.Note
-        }
-        Write-Host "  â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤" -ForegroundColor $theme.Note
 
         $start = $page * $PageSize
         $end = [Math]::Min($Items.Count - 1, $start + $PageSize - 1)
         $selectable = @()
+        $rows = [System.Collections.Generic.List[object]]::new()
         $local = 1
 
         for ($i = $start; $i -le $end; $i++) {
             $item = $Items[$i]
             if ($item.Key -eq '__header') {
-                Write-Host "  â”‚ " -NoNewline -ForegroundColor $theme.Note; Write-Host ("{0,-71}" -f $item.Label.ToUpper()) -ForegroundColor $theme.Accent -NoNewline; Write-Host " â”‚" -ForegroundColor $theme.Note
+                $rows.Add([PSCustomObject]@{ IsHeader = $true; Label = $item.Label })
                 continue
             }
-            $label = Format-MenuText $item.Label 28
-            $value = Format-MenuText $item.Value 28
-            $hint = Format-MenuText $item.Hint 8
-            
-            $numLabel = "[$local]"
-            Write-Host "  â”‚ " -NoNewline -ForegroundColor $theme.Note
-            Write-Host ("{0,4} " -f $numLabel) -ForegroundColor $theme.Accent -NoNewline
-            Write-Host ("{0,-28}" -f $label) -ForegroundColor $theme.Text -NoNewline
-            Write-Host " " -NoNewline
-            Write-Host ("{0,-28}" -f $value) -ForegroundColor $theme.Note -NoNewline
-            Write-Host (" {0,-8}" -f $hint) -ForegroundColor $theme.Muted -NoNewline
-            Write-Host " â”‚" -ForegroundColor $theme.Note
-
+            $rows.Add([PSCustomObject]@{
+                IsHeader = $false
+                Number   = "[$local]"
+                Label    = $item.Label
+                Value    = $item.Value
+                Hint     = $item.Hint
+            })
             $selectable += $item
             $local++
         }
-        
-        Write-Host "  â•°â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â•¯" -ForegroundColor $theme.Note
+
+        Write-SettingsMenuPanel -Title $Title -Subtitle $Subtitle -Rows @($rows) -UiTheme $uiTheme -Layout $panelLayout
         Write-MenuControls -Text $controls -Config $Config -Page $page -PageCount $pageCount
         $pick = (Read-Host '  Select').Trim().ToUpper()
         if ($pick -eq 'B' -or $pick -eq '') { return $null }
@@ -231,7 +304,8 @@ function Select-Choice {
     param(
         [string]$Title,
         [object[]]$Choices,
-        $CurrentValue = $null
+        $CurrentValue = $null,
+        [object]$Config = $null
     )
     $items = @(
         $Choices | ForEach-Object {
@@ -239,7 +313,7 @@ function Select-Choice {
             New-MenuItem -Key $_.Value -Label $_.Label -Hint $mark
         }
     )
-    $selected = Invoke-NumberedMenu -Title $Title -Items $items
+    $selected = Invoke-NumberedMenu -Title $Title -Items $items -Config $Config
     if (-not $selected) { return $CurrentValue }
     return $selected.Key
 }
@@ -256,6 +330,12 @@ function Get-FallbackModelCatalog {
             [PSCustomObject]@{ Id='gemini-2.5-flash-lite'; Label='gemini-2.5-flash-lite'; Note='lighter/faster' },
             [PSCustomObject]@{ Id='gemini-3-flash-preview'; Label='gemini-3-flash-preview'; Note='preview, may vary by account' },
             [PSCustomObject]@{ Id='gemini-3-pro-preview'; Label='gemini-3-pro-preview'; Note='preview, may vary by account' }
+        )
+        huggingface = @(
+            [PSCustomObject]@{ Id='meta-llama/Meta-Llama-3-8B-Instruct'; Label='Llama-3-8B'; Note='fast, efficient' },
+            [PSCustomObject]@{ Id='mistralai/Mistral-7B-Instruct-v0.3'; Label='Mistral-7B'; Note='balanced performance' },
+            [PSCustomObject]@{ Id='meta-llama/Meta-Llama-3.1-70B-Instruct'; Label='Llama-3.1-70B'; Note='complex reasoning' },
+            [PSCustomObject]@{ Id='Qwen/Qwen2.5-72B-Instruct'; Label='Qwen-2.5-72B'; Note='strong multi-lingual' }
         )
     }
 }
@@ -287,7 +367,7 @@ function Get-LiveGeminiModels {
     }
 }
 
-function Get-LiveopenaiModels {
+function Get-LiveOpenAIModels {
     param([object]$Config)
     $key = Get-Prop $Config.api_keys 'openai' ''
     if ([string]::IsNullOrWhiteSpace($key)) { return @() }
@@ -313,16 +393,39 @@ function Get-LiveopenaiModels {
     }
 }
 
+function Get-LiveHuggingFaceModels {
+    param([object]$Config)
+    try {
+        $amp = [char]38
+        $uri = "https://huggingface.co/api/models?pipeline_tag=text-generation${amp}sort=downloads${amp}direction=-1${amp}limit=20"
+        $res = Invoke-RestMethod -Uri $uri -Method GET -TimeoutSec 20 -EA Stop
+        return @(
+            $res | ForEach-Object {
+                $dl = Get-Prop $_ 'downloads' 0
+                $dlStr = Format-LargeCount $dl
+                [PSCustomObject]@{
+                    Id    = $_.modelId
+                    Label = $_.modelId
+                    Note  = ('HF | {0} downloads' -f $dlStr)
+                }
+            }
+        )
+    } catch {
+        return @()
+    }
+}
+
 function Get-ModelOptions {
     param(
         [ValidateSet('openai','gemini','huggingface')][string]$Backend,
         [object]$Config
     )
 
-    $live = if ($Backend -eq 'gemini') {
-        Get-LiveGeminiModels -Config $Config
-    } else {
-        Get-LiveopenaiModels -Config $Config
+    $Backend = Normalize-AIBackend $Backend
+    $live = switch ($Backend) {
+        'gemini'      { Get-LiveGeminiModels -Config $Config }
+        'huggingface' { Get-LiveHuggingFaceModels -Config $Config }
+        default       { Get-LiveOpenAIModels -Config $Config }
     }
 
     if (@($live).Count -gt 0) {
@@ -347,7 +450,7 @@ function Select-FirstModelMatch {
                 (("$($_.Id) $($_.Label) $($_.Note)") -match $pattern)
             } | Select-Object -First 1
         )
-        if ($found.Count -gt 0) { return $found[0] }
+        if (@($found).Count -gt 0) { return $found[0] }
     }
 
     return $null
@@ -367,6 +470,12 @@ function Get-SuggestedAIModels {
             [PSCustomObject]@{ Slot='Fast';    Patterns=@('gemini-3(\.\d+)?-flash(?!-lite)', 'gemini-2\.5-flash(?!-lite)', 'flash(?!-lite)') },
             [PSCustomObject]@{ Slot='Lite';    Patterns=@('flash-lite', 'lite') },
             [PSCustomObject]@{ Slot='Complex'; Patterns=@('gemini-3(\.\d+)?-pro', 'gemini-2\.5-pro', 'pro') }
+        )
+    } elseif ($Backend -eq 'huggingface') {
+        $defs = @(
+            [PSCustomObject]@{ Slot='Fast';    Patterns=@('llama.*-8b', 'mistral.*-7b', '8b', '7b') },
+            [PSCustomObject]@{ Slot='Balanced'; Patterns=@('mistral.*-7b', 'gemma.*-7b', '7b') },
+            [PSCustomObject]@{ Slot='Complex'; Patterns=@('llama.*-70b', 'qwen.*-72b', '70b', '72b') }
         )
     } else {
         $defs = @(
@@ -600,7 +709,7 @@ function Get-TtsModelOptions {
     param([object]$Config)
 
     $live = @(Get-LiveElevenLabsTtsModels -Config $Config)
-    if ($live.Count -gt 0) {
+    if (@($live).Count -gt 0) {
         return [PSCustomObject]@{ Source='live'; Models=$live }
     }
     return [PSCustomObject]@{ Source='fallback'; Models=@(Get-FallbackTtsModelCatalog) }
@@ -625,6 +734,14 @@ function Get-FallbackImageModelCatalog {
             [PSCustomObject]@{ Id='gemini-3-flash-image-preview'; Label='gemini-3-flash-image-preview'; Note='Gemini image preview' },
             [PSCustomObject]@{ Id='imagen-4.0-fast-generate-001'; Label='imagen-4.0-fast-generate-001'; Note='Imagen, saves as JPEG' },
             [PSCustomObject]@{ Id='imagen-4.0-generate-001'; Label='imagen-4.0-generate-001'; Note='Imagen, saves as JPEG' }
+        )
+    }
+    if ($Provider -eq 'huggingface') {
+        return @(
+            [PSCustomObject]@{ Id='stabilityai/stable-diffusion-xl-base-1.0'; Label='SDXL Base 1.0'; Note='reliable balanced choice' },
+            [PSCustomObject]@{ Id='black-forest-labs/FLUX.1-schnell'; Label='FLUX.1-schnell'; Note='fast high quality' },
+            [PSCustomObject]@{ Id='black-forest-labs/FLUX.1-dev'; Label='FLUX.1-dev'; Note='very high quality' },
+            [PSCustomObject]@{ Id='runwayml/stable-diffusion-v1-5'; Label='SD v1.5'; Note='legacy fast choice' }
         )
     }
     return @(
@@ -713,6 +830,31 @@ function Get-LivePollinationsImageModels {
     }
 }
 
+function Get-LiveHuggingFaceImageModels {
+    param([object]$Config)
+    try {
+        $amp = [char]38
+        $uri = "https://huggingface.co/api/models?pipeline_tag=text-to-image${amp}sort=downloads${amp}direction=-1${amp}limit=20"
+        $res = Invoke-RestMethod -Uri $uri -Method GET -TimeoutSec 20 -EA Stop
+        $list = @($res)
+        return @(
+            $list | ForEach-Object {
+                $dl = Get-Prop $_ 'downloads' 0
+                $dlStr = Format-LargeCount $dl
+                $modelId = Get-Prop $_ 'modelId' ''
+                if ([string]::IsNullOrWhiteSpace($modelId)) { $modelId = Get-Prop $_ 'id' '' }
+                [PSCustomObject]@{
+                    Id    = $modelId
+                    Label = $modelId
+                    Note  = ('HF | {0} downloads' -f $dlStr)
+                }
+            } | Where-Object { -not [string]::IsNullOrWhiteSpace($_.Id) }
+        )
+    } catch {
+        return @()
+    }
+}
+
 function Get-ImageModelOptions {
     param(
         [ValidateSet('openai','gemini','huggingface','pollinations')][string]$Provider,
@@ -722,6 +864,7 @@ function Get-ImageModelOptions {
     $live = switch ($Provider) {
         'gemini'       { Get-LiveGeminiImageModels -Config $Config }
         'pollinations' { Get-LivePollinationsImageModels -Config $Config }
+        'huggingface'  { Get-LiveHuggingFaceImageModels -Config $Config }
         default        { Get-LiveOpenAIImageModels -Config $Config }
     }
 
@@ -743,11 +886,12 @@ function Select-ImageModel {
     $items = @(
         $options.Models | ForEach-Object {
             $hint = if ($_.Id -eq $CurrentModel) { 'current' } else { $_.Note }
-            New-MenuItem -Key $_.Id -Label $_.Label -Hint $hint
+            $short = if ($_.Label -match '/') { ($_.Label -split '/')[-1] } else { $_.Label }
+            New-MenuItem -Key $_.Id -Label $short -Value $_.Label -Hint $hint
         }
     )
 
-    $selected = Invoke-NumberedMenu -Title "$($Provider.ToUpper()) Image Models" -Subtitle "Current: $CurrentModel  |  Source: $sourceText" -Items $items -PageSize 10 -AllowManual -Config $Config
+    $selected = Invoke-NumberedMenu -Title "$($Provider.ToUpper()) Image Models" -Subtitle "Current: $CurrentModel  |  Source: $sourceText" -Items $items -PageSize 8 -AllowManual -Config $Config
     if (-not $selected) { return $CurrentModel }
     if ($selected.Key -eq '__manual') {
         Show-SettingsBanner
@@ -870,11 +1014,12 @@ function Select-ModelFromList {
         [string]$CurrentModel = '',
         [object]$Config
     )
+    $Backend = Normalize-AIBackend $Backend
     $options = Get-ModelOptions -Backend $Backend -Config $Config
     $models = @($options.Models)
     $sourceText = if ($options.Source -eq 'live') { 'Live provider list' } else { 'Built-in fallback list' }
     $items = @(New-ModelPickerItems -Backend $Backend -Models $models -CurrentModel $CurrentModel)
-    $selected = Invoke-NumberedMenu -Title "$($Backend.ToUpper()) Models" -Subtitle "Current: $CurrentModel  |  Source: $sourceText" -Items $items -PageSize 10 -AllowManual -Config $Config
+    $selected = Invoke-NumberedMenu -Title "$($Backend.ToUpper()) Models" -Subtitle "Current: $CurrentModel  |  Source: $sourceText" -Items $items -PageSize 8 -AllowManual -Config $Config
     if (-not $selected) { return $CurrentModel }
     if ($selected.Key -eq '__manual') {
         Show-SettingsBanner
@@ -892,7 +1037,7 @@ function Invoke-ModelCheck {
     foreach ($backend in @('openai','gemini','huggingface')) {
         $current = Get-Prop $Config.ai.$backend 'model' ''
         $options = Get-ModelOptions -Backend $backend -Config $Config
-        $known   = @($options.Models | Where-Object { $_.Id -eq $current }).Count -gt 0
+        $known   = @(@($options.Models) | Where-Object { $_.Id -eq $current }).Count -gt 0
         $source  = if ($options.Source -eq 'live') { 'live' } else { 'fallback' }
         $icon    = if ($current -and $known) { 'OK' } elseif ($current) { 'CUSTOM' } else { 'MISSING' }
         $color   = if ($current -and $known) { 'Green' } elseif ($current) { 'Yellow' } else { 'Red' }
@@ -903,7 +1048,7 @@ function Invoke-ModelCheck {
     if ($imageProvider -in @('openai','gemini','huggingface','pollinations')) {
         $currentImage = Get-Prop $Config.images 'model' ''
         $imageOptions = Get-ImageModelOptions -Provider $imageProvider -Config $Config
-        $knownImage = @($imageOptions.Models | Where-Object { $_.Id -eq $currentImage }).Count -gt 0
+        $knownImage = @(@($imageOptions.Models) | Where-Object { $_.Id -eq $currentImage }).Count -gt 0
         $imageSource = if ($imageOptions.Source -eq 'live') { 'live' } else { 'fallback' }
         $imageIcon = if ($currentImage -and $knownImage) { 'OK' } elseif ($currentImage) { 'CUSTOM' } else { 'MISSING' }
         $imageColor = if ($currentImage -and $knownImage) { 'Green' } elseif ($currentImage) { 'Yellow' } else { 'Red' }
@@ -985,6 +1130,20 @@ function Assert-ConfigShape {
         $grid = [Math]::Min(2, [Math]::Max(1, [int](Get-Prop $Config.images 'composite_grid' 1)))
         Set-Prop $Config.images 'composite_layout' "${grid}x${grid}"
     }
+
+    foreach ($prop in @('primary', 'fallback')) {
+        $backend = Normalize-AIBackend (Get-Prop $Config.ai $prop '')
+        if ($backend -ne (Get-Prop $Config.ai $prop '')) {
+            Set-Prop $Config.ai $prop $backend
+        }
+    }
+
+    if ($Config.ai.PSObject.Properties['codex']) {
+        $legacyModel = Get-Prop $Config.ai.codex 'model' ''
+        if ($legacyModel -and [string]::IsNullOrWhiteSpace((Get-Prop $Config.ai.openai 'model' ''))) {
+            Set-Prop $Config.ai.openai 'model' $legacyModel
+        }
+    }
 }
 
 # Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ Ã¢â€¢ 
@@ -994,9 +1153,10 @@ function Assert-ConfigShape {
 function Show-SettingsBanner {
     Clear-Host
     Write-Host ''
-    Write-Host '  â•­â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â•®' -ForegroundColor Cyan
-    Write-Host '  â”‚                        VIDEO FACTORY â€” SETTINGS                         â”‚' -ForegroundColor Cyan
-    Write-Host '  â•°â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â•¯' -ForegroundColor Cyan
+    $border = '-' * 71
+    Write-Host "  +$border+" -ForegroundColor Cyan
+    Write-Host '  |                        VIDEO FACTORY - SETTINGS                         |' -ForegroundColor Cyan
+    Write-Host "  +$border+" -ForegroundColor Cyan
     Write-Host ''
 }
 
@@ -1098,6 +1258,11 @@ function Edit-AIBackend {
                 New-MenuItem -Key 'gemini_timeout'-Label 'Gemini timeout'      -Value "$(Get-Prop $Config.ai.gemini 'timeout_seconds' 300)s"
                 New-MenuItem -Key 'gemini_cli'    -Label 'Gemini CLI path'     -Value (Get-Prop $Config.ai.gemini 'cli_path' 'gemini')
             )
+        } elseif ($primary -eq 'huggingface') {
+            $items += @(
+                New-MenuHeader -Label 'Selected Hugging Face Settings'
+                New-MenuItem -Key 'hf_model' -Label 'HF model' -Value (Get-Prop $Config.ai.huggingface 'model' 'meta-llama/Meta-Llama-3-8B-Instruct')
+            )
         } else {
             $items += @(
                 New-MenuHeader -Label 'Selected openai Settings'
@@ -1114,14 +1279,16 @@ function Edit-AIBackend {
             'primary' {
                 $v = Select-Choice -Title 'Primary Backend' -CurrentValue (Get-Prop $Config.ai 'primary' 'openai') -Choices @(
                     [PSCustomObject]@{ Label='openai'; Value='openai' },
-                    [PSCustomObject]@{ Label='Gemini'; Value='gemini' }
+                    [PSCustomObject]@{ Label='Gemini'; Value='gemini' },
+                    [PSCustomObject]@{ Label='Hugging Face'; Value='huggingface' }
                 )
                 Set-Prop $Config.ai 'primary' $v
             }
             'fallback' {
                 $v = Select-Choice -Title 'Fallback Backend' -CurrentValue (Get-Prop $Config.ai 'fallback' 'gemini') -Choices @(
                     [PSCustomObject]@{ Label='openai'; Value='openai' },
-                    [PSCustomObject]@{ Label='Gemini'; Value='gemini' }
+                    [PSCustomObject]@{ Label='Gemini'; Value='gemini' },
+                    [PSCustomObject]@{ Label='Hugging Face'; Value='huggingface' }
                 )
                 Set-Prop $Config.ai 'fallback' $v
             }
@@ -1137,6 +1304,9 @@ function Edit-AIBackend {
                     [PSCustomObject]@{ Label='Suggest'; Value='suggest' }
                 )
                 Set-Prop $Config.ai.openai 'approval_mode' $v
+            }
+            'hf_model' {
+                Set-Prop $Config.ai.huggingface 'model' (Select-ModelFromList -Backend huggingface -CurrentModel (Get-Prop $Config.ai.huggingface 'model' 'meta-llama/Meta-Llama-3-8B-Instruct') -Config $Config)
             }
             'gemini_model' {
                 Set-Prop $Config.ai.gemini 'model' (Select-ModelFromList -Backend gemini -CurrentModel (Get-Prop $Config.ai.gemini 'model' 'gemini-2.5-flash') -Config $Config)
@@ -1174,8 +1344,12 @@ function Edit-AIBackend {
 function Edit-Models {
     param([object]$Config)
     while ($true) {
-        $primary = Get-Prop $Config.ai 'primary' 'openai'
-        $fallback = Get-Prop $Config.ai 'fallback' 'gemini'
+        $storedPrimary = Get-Prop $Config.ai 'primary' 'openai'
+        $storedFallback = Get-Prop $Config.ai 'fallback' 'gemini'
+        $primary = Normalize-AIBackend $storedPrimary
+        $fallback = Normalize-AIBackend $storedFallback
+        if ($primary -ne $storedPrimary) { Set-Prop $Config.ai 'primary' $primary }
+        if ($fallback -ne $storedFallback) { Set-Prop $Config.ai 'fallback' $fallback }
         $primaryOptions = Get-ModelOptions -Backend $primary -Config $Config
         $items = @(
             New-MenuItem -Key 'primary_model' -Label "Select $primary model" -Value (Get-Prop $Config.ai.$primary 'model' '') -Hint $primaryOptions.Source
@@ -1312,6 +1486,7 @@ function Edit-ImageSettings {
             New-MenuItem -Key 'layout'   -Label 'Composite saving level' -Value (Get-CompositeLayoutLabel (Get-Prop $Config.images 'composite_layout' '1x1'))
             New-MenuItem -Key 'tokens_info' -Label 'Tokens'        -Value (Get-ImageTokenText -Config $Config)
         )
+        $providerSection = $provider
         if ($provider -eq 'gemini') {
             $items += @(
                 New-MenuHeader -Label 'Selected Gemini Image Settings'
@@ -1328,13 +1503,22 @@ function Edit-ImageSettings {
                 New-MenuItem -Key 'psafe'    -Label 'Safe mode'       -Value (Get-Prop $Config.images 'pollinations_safe' $true)
                 New-MenuItem -Key 'pnegative' -Label 'Negative prompt' -Value (Get-Prop $Config.images 'pollinations_negative_prompt' '')
             )
-        } else {
+        } elseif ($provider -eq 'openai') {
             $items += @(
                 New-MenuHeader -Label 'Selected OpenAI Image Settings'
                 New-MenuItem -Key 'size'     -Label 'Size'            -Value (Get-Prop $Config.images 'size' '1536x1024')
                 New-MenuItem -Key 'quality'  -Label 'Quality'         -Value (Get-Prop $Config.images 'quality' 'medium')
             )
+            $providerSection = 'openai'
+        } else {
+            $items += @(
+                New-MenuHeader -Label 'Selected Hugging Face Image Settings'
+                New-MenuItem -Key 'hf_info' -Label 'Inference' -Value 'HF Inference API (model repo ID)'
+                New-MenuItem -Key 'hf_note' -Label 'API key' -Value (if ([string]::IsNullOrWhiteSpace((Get-Prop $Config.api_keys 'huggingface' ''))) { 'not set — add in API keys' } else { 'configured' })
+            )
+            $providerSection = 'huggingface'
         }
+        if (-not $providerSection) { $providerSection = $provider }
         $items += @(
             New-MenuItem -Key 'retries'  -Label 'Retries'          -Value (Get-Prop $Config.images 'retries' 2)
             New-MenuItem -Key 'provider_fallback' -Label 'Provider fallback' -Value (Get-Prop $Config.images 'auto_provider_fallback' $false) -Hint 'switch failed provider to OpenAI'
@@ -1356,7 +1540,8 @@ function Edit-ImageSettings {
                 $v = Select-Choice -Title 'Image Provider' -CurrentValue (Get-Prop $Config.images 'provider' 'openai') -Choices @(
                     [PSCustomObject]@{ Label='OpenAI'; Value='openai' },
                     [PSCustomObject]@{ Label='Gemini'; Value='gemini' },
-                    [PSCustomObject]@{ Label='Pollinations'; Value='pollinations' }
+                    [PSCustomObject]@{ Label='Pollinations'; Value='pollinations' },
+                    [PSCustomObject]@{ Label='Hugging Face'; Value='huggingface' }
                 )
                 Set-Prop $Config.images 'provider' $v
                 if ($v -eq 'openai' -and (Get-Prop $Config.images 'model' '') -notmatch '^(gpt-image|dall-e)') {
@@ -1367,6 +1552,9 @@ function Edit-ImageSettings {
                 }
                 if ($v -eq 'pollinations' -and (Get-Prop $Config.images 'model' '') -match '^(gpt-image|dall-e|gemini|imagen)') {
                     Set-Prop $Config.images 'model' 'flux'
+                }
+                if ($v -eq 'huggingface' -and (Get-Prop $Config.images 'model' '') -match '^(gpt-image|dall-e|gemini|imagen|flux|turbo|kontext|seedream|nanobanana)') {
+                    Set-Prop $Config.images 'model' 'stabilityai/stable-diffusion-xl-base-1.0'
                 }
             }
             'model' {
@@ -1391,6 +1579,24 @@ function Edit-ImageSettings {
                 Write-Host "  $(Get-ImageTokenText -Config $Config)" -ForegroundColor White
                 Write-Host ''
                 Write-Host '  Composite saving levels reduce generated image calls, so the per-scene estimate drops when one generated image contains multiple scenes.' -ForegroundColor DarkGray
+                Read-Host '  Press Enter to continue'
+            }
+            'hf_info' {
+                Show-SettingsBanner
+                Write-Host '  Hugging Face image generation' -ForegroundColor Cyan
+                Write-Host '  Uses the Inference API with a model repo ID (e.g. stabilityai/stable-diffusion-xl-base-1.0).' -ForegroundColor White
+                Write-Host '  Set your HF API key under Settings -> API keys.' -ForegroundColor DarkGray
+                Read-Host '  Press Enter to continue'
+            }
+            'hf_note' {
+                Show-SettingsBanner
+                $hfKey = Get-Prop $Config.api_keys 'huggingface' ''
+                Write-Host '  Hugging Face API key' -ForegroundColor Cyan
+                if ([string]::IsNullOrWhiteSpace($hfKey)) {
+                    Write-Host '  Not set. Add it under Settings -> API keys -> Hugging Face API key.' -ForegroundColor Yellow
+                } else {
+                    Write-Host "  Configured: $(Mask-Key $hfKey)" -ForegroundColor Green
+                }
                 Read-Host '  Press Enter to continue'
             }
             'size' {
@@ -1621,7 +1827,7 @@ function Invoke-SettingsMenu {
         $mainBackend = Get-Prop $Config.ai 'primary' 'openai'
         $mainModel = Get-Prop $Config.ai.$mainBackend 'model' ''
         $items = @(
-            New-MenuItem -Key 'api'     -Label 'API keys'       -Value "OpenAI $(Mask-Key (Get-Prop $Config.api_keys 'openai'))  Pollinations $(Mask-Key (Get-Prop $Config.api_keys 'pollinations'))"
+            New-MenuItem -Key 'api'     -Label 'API keys'       -Value "OA:$(Mask-Key (Get-Prop $Config.api_keys 'openai')) P:$(Mask-Key (Get-Prop $Config.api_keys 'pollinations')) HF:$(Mask-Key (Get-Prop $Config.api_keys 'huggingface'))"
             New-MenuItem -Key 'ai'      -Label 'Main AI'        -Value "Primary $mainBackend  model $mainModel"
             New-MenuItem -Key 'voice'   -Label 'Voice / Audio'  -Value "$(Get-Prop $Config.voice 'model_id' 'eleven_flash_v2_5')  cleanup $(Get-Prop $Config.audio 'silence_thresh_dbfs') dBFS"
             New-MenuItem -Key 'images'  -Label 'Images/AI'      -Value "$(Get-Prop $Config.images 'mode' 'auto_review')  $(Get-Prop $Config.images 'provider' 'openai')  $(Get-CompositeLayoutLabel (Get-Prop $Config.images 'composite_layout' '1x1'))"

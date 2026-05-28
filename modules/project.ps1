@@ -8,6 +8,16 @@
 # LOGGING
 # ══════════════════════════════════════════════════════════════════════════════
 
+function Normalize-AIBackend {
+    param([string]$Backend)
+    if ([string]::IsNullOrWhiteSpace($Backend)) { return 'openai' }
+    switch ($Backend.ToLower()) {
+        'codex' { return 'openai' }
+        'gpt3'  { return 'openai' }
+        default { return $Backend.ToLower() }
+    }
+}
+
 function Write-Log {
     param(
         [ValidateSet('INFO','WARN','ERROR','DEBUG')][string]$Level = 'INFO',
@@ -327,6 +337,10 @@ function Wait-ForImages {
         [ValidateRange(1,100)][int]$ExpectedCount
     )
     $dir = "$ProjectPath\images"
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    if (-not (Test-Path -LiteralPath $dir)) {
+        throw "Images folder could not be created: $dir"
+    }
     Start-Process explorer.exe $dir   # open folder for convenience
 
     $watcher = [System.IO.FileSystemWatcher]@{

@@ -204,6 +204,32 @@ function Invoke-VoiceGeneration {
                 throw "ElevenLabs TTS unauthorized (401): $friendly"
             }
             if ($code -eq 402) {
+                if ($friendly -match 'library voices|paid_plan|free users cannot') {
+                    Write-Host '      ElevenLabs blocked this voice on your plan (library voices need a paid API tier).' -ForegroundColor Yellow
+                    if ((Read-Host '      Use free Edge TTS for this video instead? [Y/N]') -match '^[Yy]') {
+                        $edgeVoice = if ($Config.voice.PSObject.Properties['edge_voice'] -and $Config.voice.edge_voice) {
+                            $Config.voice.edge_voice
+                        } else {
+                            'en-US-ChristopherNeural'
+                        }
+                        $spinEdge = Start-Spinner "Edge TTS ($edgeVoice)"
+                        try {
+                            $edgeOut = & edge-tts --voice $edgeVoice --text $cleanText --write-media $outputPath 2>&1
+                            if ($LASTEXITCODE -ne 0) { throw ($edgeOut -join "`n") }
+                            Stop-Spinner $spinEdge
+                            if (-not (Test-Path $outputPath) -or (Get-Item $outputPath).Length -lt 1024) {
+                                throw 'Edge TTS did not produce a valid audio file.'
+                            }
+                            $sizeMb = '{0:N2} MB' -f ((Get-Item $outputPath).Length / 1MB)
+                            Write-Host "      raw_voice.mp3 via Edge TTS  ($sizeMb)" -ForegroundColor DarkGray
+                            Write-Log -Level INFO -Message "TTS complete via Edge fallback: $sizeMb" -LogPath $logPath
+                            return
+                        } catch {
+                            Stop-Spinner $spinEdge -Failed
+                            throw "Edge TTS fallback failed: $($_.Exception.Message)"
+                        }
+                    }
+                }
                 throw "ElevenLabs TTS payment/plan restriction (402): $friendly"
             }
             if ($code -eq 429) { throw "ElevenLabs rate limit (429). Wait before retrying." }

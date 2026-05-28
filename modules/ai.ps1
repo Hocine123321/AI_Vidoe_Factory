@@ -150,16 +150,30 @@ function Invoke-HuggingFaceBackend {
     Push-Location $WorkDir
     $spin = Start-Spinner "$Label ($model)"
     try {
-        $uri = "https://api-inference.huggingface.co/models/$model/v1/chat/completions"
+        $uri = "https://api-inference.huggingface.co/v1/chat/completions"
         $headers = @{
             'Authorization' = "Bearer $key"
             'Content-Type'  = 'application/json'
         }
+
+        # Attempt to split system prompt from user prompt for better model adherence
+        $messages = @()
+        if ($Prompt -match '(?s)^(.*?)=== SYSTEM RULES ===(.*)$') {
+            $systemPart = "You are a video script writer. Follow ALL instructions exactly.`n`n=== SYSTEM RULES ===" + $Matches[2]
+            # Strip the system part from the prompt to get the user task
+            $userPart = $Prompt
+            if ($userPart -match '(?s)=== TASK ===(.*)$') {
+                $userPart = "=== TASK ===" + $Matches[1]
+            }
+            $messages += @{ role = 'system'; content = $systemPart.Trim() }
+            $messages += @{ role = 'user'; content = $userPart.Trim() }
+        } else {
+            $messages += @{ role = 'user'; content = $Prompt }
+        }
+
         $body = @{
             model    = $model
-            messages = @(
-                @{ role = 'user'; content = $Prompt }
-            )
+            messages = $messages
             max_tokens = 2000
         } | ConvertTo-Json -Depth 6
         
@@ -181,8 +195,8 @@ function Invoke-HuggingFaceBackend {
 
 function Get-ActiveBackend {
     param([ValidateNotNull()][object]$Config)
-    if ($script:ActiveBackend) { return $script:ActiveBackend }
-    return $Config.ai.primary
+    if ($script:ActiveBackend) { return (Normalize-AIBackend $script:ActiveBackend) }
+    return (Normalize-AIBackend $Config.ai.primary)
 }
 
 function Test-IsQuotaError {
@@ -209,7 +223,7 @@ function Invoke-AI {
         [int]$MaxRetries  = 1
     )
 
-    $backend = Get-ActiveBackend -Config $Config
+    $backend = Normalize-AIBackend (Get-ActiveBackend -Config $Config)
     $attempt = 0
 
     while ($attempt -le $MaxRetries) {
@@ -232,7 +246,8 @@ function Invoke-AI {
 
         # Quota path — offer fallback
         if ((Test-IsQuotaError -Output $result.Output) -and $Config.ai.auto_fallback) {
-            $fallback = $Config.ai.fallback
+            $fallback = Normalize-AIBackend $Config.ai.fallback
+            $backend = Normalize-AIBackend $backend
             if ($fallback -eq $backend) { break }
 
             Send-Toast -Title 'Video Factory' -Message "$backend quota hit. Fallback: $fallback" -Config $Config -Key 'script_ready'
@@ -241,7 +256,7 @@ function Invoke-AI {
 
             if ((Read-Host "      Switch to $fallback for this session? [Y/N]") -match '^[Yy]') {
                 $script:ActiveBackend = $fallback
-                $backend = $fallback
+                $backend = Normalize-AIBackend $fallback
                 $attempt = 0   # reset retry counter for new backend
                 Write-Host "      Switched to $fallback.`n" -ForegroundColor Green
                 Write-Log -Level INFO -Message "Backend switched to $fallback for session" -LogPath $LogPath
