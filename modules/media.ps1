@@ -204,6 +204,32 @@ function Invoke-VoiceGeneration {
                 throw "ElevenLabs TTS unauthorized (401): $friendly"
             }
             if ($code -eq 402) {
+                if ($friendly -match 'library voices|paid_plan|free users cannot') {
+                    Write-Host '      ElevenLabs blocked this voice on your plan (library voices need a paid API tier).' -ForegroundColor Yellow
+                    if ((Read-Host '      Use free Edge TTS for this video instead? [Y/N]') -match '^[Yy]') {
+                        $edgeVoice = if ($Config.voice.PSObject.Properties['edge_voice'] -and $Config.voice.edge_voice) {
+                            $Config.voice.edge_voice
+                        } else {
+                            'en-US-ChristopherNeural'
+                        }
+                        $spinEdge = Start-Spinner "Edge TTS ($edgeVoice)"
+                        try {
+                            $edgeOut = & edge-tts --voice $edgeVoice --text $cleanText --write-media $outputPath 2>&1
+                            if ($LASTEXITCODE -ne 0) { throw ($edgeOut -join "`n") }
+                            Stop-Spinner $spinEdge
+                            if (-not (Test-Path $outputPath) -or (Get-Item $outputPath).Length -lt 1024) {
+                                throw 'Edge TTS did not produce a valid audio file.'
+                            }
+                            $sizeMb = '{0:N2} MB' -f ((Get-Item $outputPath).Length / 1MB)
+                            Write-Host "      raw_voice.mp3 via Edge TTS  ($sizeMb)" -ForegroundColor DarkGray
+                            Write-Log -Level INFO -Message "TTS complete via Edge fallback: $sizeMb" -LogPath $logPath
+                            return
+                        } catch {
+                            Stop-Spinner $spinEdge -Failed
+                            throw "Edge TTS fallback failed: $($_.Exception.Message)"
+                        }
+                    }
+                }
                 throw "ElevenLabs TTS payment/plan restriction (402): $friendly"
             }
             if ($code -eq 429) { throw "ElevenLabs rate limit (429). Wait before retrying." }
@@ -232,17 +258,17 @@ function Invoke-AudioProcessing {
         [ValidateNotNull()][object]$Config,
         [ValidateNotNullOrEmpty()][string]$Root
     )
-    $input   = "$ProjectPath\raw_voice.mp3"
+    $inputFile   = "$ProjectPath\raw_voice.mp3"
     $output  = "$ProjectPath\optimized_voice.mp3"
     $logPath = "$ProjectPath\session.log"
 
-    if (-not (Test-Path $input)) { throw "raw_voice.mp3 not found at $input" }
+    if (-not (Test-Path $inputFile)) { throw "raw_voice.mp3 not found at $inputFile" }
 
     $result = Invoke-PythonScript `
         -PyExe     $Config.paths.python_exe `
         -Arguments @(
             "$Root\python\remove_silences.py",
-            $input, $output,
+            $inputFile, $output,
             $Config.audio.silence_thresh_dbfs,
             $Config.audio.min_silence_len_ms,
             $Config.audio.keep_silence_ms
@@ -256,7 +282,7 @@ function Invoke-AudioProcessing {
         throw "optimized_voice.mp3 was not created or is empty."
     }
 
-    $inMb  = '{0:N2} MB' -f ((Get-Item $input).Length  / 1MB)
+    $inMb  = '{0:N2} MB' -f ((Get-Item $inputFile).Length  / 1MB)
     $outMb = '{0:N2} MB' -f ((Get-Item $output).Length / 1MB)
     Write-Host "      $inMb → $outMb  (silence stripped)" -ForegroundColor DarkGray
     Write-Log -Level INFO -Message "Audio processed: $inMb → $outMb" -LogPath $logPath

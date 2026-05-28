@@ -129,7 +129,7 @@ function Get-Config {
         }
     }
 
-    # Nested: ai sub-objects
+    # Nested: ai sub-objects (ensure these exist before migrating nested keys)
     foreach ($sub in @('openai','gemini','huggingface')) {
         if (-not (& $hasProp $cfg.ai $sub)) {
             $cfg.ai | Add-Member -MemberType NoteProperty -Name $sub `
@@ -138,6 +138,7 @@ function Get-Config {
         }
     }
 
+    # Nested: property migrations for specific blocks
     foreach ($key in $defaults.ai.gemini.Keys) {
         if (-not (& $hasProp $cfg.ai.gemini $key)) {
             $cfg.ai.gemini | Add-Member -MemberType NoteProperty -Name $key -Value $defaults.ai.gemini[$key] -Force
@@ -145,14 +146,31 @@ function Get-Config {
         }
     }
 
-    # Migrate legacy 'codex' backend references to 'openai'
-    if (($cfg.ai.primary -eq 'codex') -or ($cfg.ai.primary -eq 'gpt3')) {
-        $cfg.ai.primary = 'openai'
-        $changed = $true
+    foreach ($key in $defaults.ai.huggingface.Keys) {
+        if (-not (& $hasProp $cfg.ai.huggingface $key)) {
+            $cfg.ai.huggingface | Add-Member -MemberType NoteProperty -Name $key -Value $defaults.ai.huggingface[$key] -Force
+            $changed = $true
+        }
     }
-    if (($cfg.ai.fallback -eq 'codex') -or ($cfg.ai.fallback -eq 'gpt3')) {
-        $cfg.ai.fallback = 'openai'
-        $changed = $true
+
+    # Migrate legacy 'codex' backend references to 'openai'
+    foreach ($prop in @('primary', 'fallback')) {
+        if (& $hasProp $cfg.ai $prop) {
+            $normalized = Normalize-AIBackend "$($cfg.ai.$prop)"
+            if ($normalized -ne "$($cfg.ai.$prop)") {
+                $cfg.ai.$prop = $normalized
+                $changed = $true
+            }
+        }
+    }
+    if (& $hasProp $cfg.ai 'codex') {
+        $legacyModel = if (& $hasProp $cfg.ai.codex 'model') { $cfg.ai.codex.model } else { '' }
+        if ($legacyModel -and -not [string]::IsNullOrWhiteSpace($legacyModel)) {
+            if (-not (& $hasProp $cfg.ai.openai 'model') -or [string]::IsNullOrWhiteSpace($cfg.ai.openai.model)) {
+                $cfg.ai.openai.model = $legacyModel
+                $changed = $true
+            }
+        }
     }
 
     # Nested: api key additions from later versions
@@ -547,8 +565,9 @@ try {
     }
 
     # ── First-run: guide user to settings if keys missing ────────────────────
-    $missing = @(if ($startupChecks) { Test-ConfigReady -Config $config })
-    if ($startupChecks -and $missing.Count -gt 0) {
+    $missing = @()
+    if ($startupChecks) { $missing = @(Test-ConfigReady -Config $config) }
+    if ($startupChecks -and @($missing).Count -gt 0) {
         Show-Banner -Config $config
         Write-Host "  Welcome! Setup required before your first video." -ForegroundColor Yellow
         Write-Host "  Missing: $($missing -join ', ')`n" -ForegroundColor Red
@@ -558,7 +577,7 @@ try {
             $config  = Get-Config -Path $configPath
             $missing = @(Test-ConfigReady -Config $config)
         }
-        if ($missing.Count -gt 0) {
+        if (@($missing).Count -gt 0) {
             Write-Host "`n  Still missing: $($missing -join ', ')." -ForegroundColor Red
             Write-Host '  Run main.ps1 again when ready.' -ForegroundColor DarkGray
             Read-Host '  Press Enter to exit'; exit 1
