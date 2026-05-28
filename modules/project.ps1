@@ -14,7 +14,8 @@ function Write-Log {
         [string]$Message,
         [string]$LogPath = ""
     )
-    $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [$Level] $Message"
+    $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    $line = "$ts [$Level] $Message"
     if ($LogPath) {
         try { Add-Content -Path $LogPath -Value $line -Encoding UTF8 -EA Stop }
         catch {} # log failure is never fatal
@@ -83,11 +84,14 @@ function Write-AppError {
     param([string]$Message, [string]$LogPath = "", [switch]$Fatal)
     $err = Resolve-AppError -Message $Message
     Write-Host ""
-    Write-Host "  [$($err.Category)] $($err.Message)" -ForegroundColor Red
+    $cat = $err.Category
+    $emsg = $err.Message
+    Write-Host "  [$cat] $emsg" -ForegroundColor Red
     if ($err.Hint) {
-        Write-Host "  → $($err.Hint)" -ForegroundColor Yellow
+        $ehint = $err.Hint
+        Write-Host "  → $ehint" -ForegroundColor Yellow
     }
-    Write-Log -Level ERROR -Message "[$($err.Category)] $Message" -LogPath $LogPath
+    Write-Log -Level ERROR -Message "[$cat] $Message" -LogPath $LogPath
     if ($Fatal) {
         Read-Host "`n  Press Enter to exit"
         exit 1
@@ -117,7 +121,9 @@ function Start-Spinner {
         $i  = 0
         try { [Console]::CursorVisible = $false } catch {}
         while (-not $tok.IsCancellationRequested) {
-            [Console]::Write("`r    $($frames[$i % $frames.Count]) $lbl  $($sw.Elapsed.ToString('mm\:ss'))   ")
+            $f = $frames[$i % $frames.Count]
+            $elap = $sw.Elapsed.ToString('mm\:ss')
+            [Console]::Write("`r    $f $lbl  $elap   ")
             $i++
             [System.Threading.Thread]::Sleep(80)
         }
@@ -139,7 +145,8 @@ function Stop-Spinner {
         $Spinner.Job | Remove-Job -Force -EA SilentlyContinue
         try { $Spinner.Cts.Dispose() } catch {}
     }
-    Write-Host "`r    $icon $($Spinner.Label)  [$elapsed]               " -ForegroundColor $color
+    $slbl = $Spinner.Label
+    Write-Host "`r    $icon $slbl  [$elapsed]               " -ForegroundColor $color
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -241,7 +248,8 @@ function New-VideoProject {
     )
     $slug = ($Topic.ToLower() -replace '[^a-z0-9\s-]','' -replace '\s+','-' -replace '-{2,}','-').Trim('-')
     $slug = $slug.Substring(0, [Math]::Min($slug.Length, 40))
-    $projectPath = Join-Path $Config.paths.output_folder "$(Get-Date -Format 'yyyy-MM-dd')_$slug"
+    $date = Get-Date -Format 'yyyy-MM-dd'
+    $projectPath = Join-Path $Config.paths.output_folder "${date}_$slug"
 
     @($projectPath, "$projectPath\images") | ForEach-Object {
         New-Item -ItemType Directory -Force -Path $_ | Out-Null
@@ -291,7 +299,8 @@ function Find-IncompleteProjects {
         Get-ChildItem $OutputFolder -Directory |
         Sort-Object LastWriteTime -Descending |   # newest first
         ForEach-Object {
-            $sp = "$($_.FullName)\pipeline_state.json"
+            $fpath = $_.FullName
+            $sp = "$fpath\pipeline_state.json"
             if (Test-Path $sp) {
                 $s = Get-Content $sp -Raw | ConvertFrom-Json -EA SilentlyContinue
                 if ($s -and $s.PSObject.Properties['phase'] -and $s.phase -ne 'complete') {
@@ -299,16 +308,21 @@ function Find-IncompleteProjects {
                     $createdProp     = $s.PSObject.Properties['created']
                     $topicProp       = $s.PSObject.Properties['topic']
                     $lu              = if ($lastUpdatedProp) { $lastUpdatedProp.Value } elseif ($createdProp) { $createdProp.Value } else { $null }
-                    $lu              = if ($lu) { $lu } else { (Get-Date).ToString('o') }
-                    $age    = New-TimeSpan -Start ([datetime]$lu) -End (Get-Date)
-                    $ageStr = if ($age.TotalDays -ge 1)  { "$([int]$age.TotalDays)d ago" }
-                             elseif ($age.TotalHours -ge 1) { "$([int]$age.TotalHours)h ago" }
-                             else { "$([int]$age.TotalMinutes)m ago" }
+                    $now             = Get-Date
+                    $lu              = if ($lu) { $lu } else { $now.ToString('o') }
+                    $age    = New-TimeSpan -Start ([datetime]$lu) -End $now
+
+                    $ageStr = ''
+                    if ($age.TotalDays -ge 1)  { $d = [int]$age.TotalDays; $ageStr = "${d}d ago" }
+                    elseif ($age.TotalHours -ge 1) { $h = [int]$age.TotalHours; $ageStr = "${h}h ago" }
+                    else { $m = [int]$age.TotalMinutes; $ageStr = "${m}m ago" }
+
                     $topic  = if ($topicProp) { $topicProp.Value } else { '(unknown)' }
+                    $phase = $s.phase
                     [PSCustomObject]@{
-                        ProjectPath = $_.FullName
+                        ProjectPath = $fpath
                         Topic       = $topic
-                        Phase       = $s.phase
+                        Phase       = $phase
                         Age         = $ageStr
                     }
                 }
@@ -343,14 +357,15 @@ function Wait-ForImages {
         $change = $watcher.WaitForChanged([System.IO.WatcherChangeTypes]'Created,Changed', 5000)
         if (-not $change.TimedOut -and $change.Name) {
             Start-Sleep -Milliseconds 400   # let OS finish writing
-            $path    = "$dir\$($change.Name)"
+            $cname = $change.Name
+            $path    = "$dir\$cname"
             if ([IO.Path]::GetExtension($path) -notmatch '^\.(png|jpg|jpeg)$') { continue }
             $valid   = Test-ValidImageFile -Path $path
-            $size    = if (Test-Path $path) { '{0:N0} KB' -f ((Get-Item $path).Length / 1KB) } else { '?' }
+            $size    = if (Test-Path $path) { $flen = (Get-Item $path).Length / 1KB; '{0:N0} KB' -f $flen } else { '?' }
             $current = & $getCount
             $icon    = if ($valid) { '✓' } else { '✗ INVALID' }
             $color   = if ($valid) { 'Green' } else { 'Red' }
-            Write-Host ("    [{0}] {1,-30} {2,8}    [{3}/{4}]" -f $icon, $change.Name, $size, $current, $ExpectedCount) -ForegroundColor $color
+            Write-Host ("    [{0}] {1,-30} {2,8}    [{3}/{4}]" -f $icon, $cname, $size, $current, $ExpectedCount) -ForegroundColor $color
         }
     }
     $watcher.Dispose()
@@ -358,8 +373,9 @@ function Wait-ForImages {
     # Final validation sweep
     $invalid = @(Get-ChildItem $dir -File | Where-Object { $_.Extension -match '^\.(png|jpg|jpeg)$' -and -not (Test-ValidImageFile $_.FullName) })
     if ($invalid.Count -gt 0) {
-        Write-Host "`n    [WARN] $($invalid.Count) invalid PNG(s) detected:" -ForegroundColor Yellow
-        $invalid | ForEach-Object { Write-Host "      × $($_.Name)" -ForegroundColor Red }
+        $invCount = $invalid.Count
+        Write-Host "`n    [WARN] $invCount invalid PNG(s) detected:" -ForegroundColor Yellow
+        $invalid | ForEach-Object { $iname = $_.Name; Write-Host "      × $iname" -ForegroundColor Red }
         if ((Read-Host "    Continue with invalid files excluded? [Y/N]") -notmatch '^[Yy]') {
             throw "Image validation failed — user aborted."
         }
@@ -369,7 +385,7 @@ function Wait-ForImages {
     $images = Get-ChildItem $dir -File |
               Where-Object { $_.Extension -match '^\.(png|jpg|jpeg)$' -and (Test-ValidImageFile $_.FullName) } |
               Sort-Object Name |
-              ForEach-Object { "images\$($_.Name)" }
+              ForEach-Object { $name = $_.Name; "images\$name" }
 
     if ($images.Count -eq 0) { throw "No valid PNG/JPEG images found in $dir" }
 
@@ -404,9 +420,12 @@ function Invoke-DepCheck {
     foreach ($d in $deps) {
         $ver = try { & $d.Ver } catch { $null }
         $ok  = $null -ne $ver -and "$ver".Trim() -ne ''
-        $verStr = if ($ok -and "$ver".Length -gt 0) { "  ($("$ver".Trim().Split("`n")[0]))" } else { '' }
-        Write-Host ("  [{0}] {1,-14}{2}" -f $(if ($ok){'✓'}else{'✗'}), $d.Name, $verStr) `
-            -ForegroundColor $(if ($ok){'Green'}else{'Red'})
+        $vtrim = if ($ok) { "$ver".Trim().Split("`n")[0] } else { '' }
+        $verStr = if ($ok -and $vtrim.Length -gt 0) { "  ($vtrim)" } else { '' }
+        $dname = $d.Name
+        $icon = if ($ok) { '✓' } else { '✗' }
+        $color = if ($ok) { 'Green' } else { 'Red' }
+        Write-Host ("  [{0}] {1,-14}{2}" -f $icon, $dname, $verStr) -ForegroundColor $color
         if (-not $ok) { $missing.Add($d) }
     }
 
@@ -423,19 +442,21 @@ function Invoke-DepCheck {
     }
 
     foreach ($d in $missing) {
+        $dname = $d.Name
         if ($d.Method -eq 'manual') {
-            Write-Host "  [!] $($d.Name) requires manual install:" -ForegroundColor Yellow
+            Write-Host "  [!] $dname requires manual install:" -ForegroundColor Yellow
             Write-Host "      https://ai.google.dev/gemini-api/docs/gemini-cli" -ForegroundColor DarkGray
             continue
         }
-        Write-Host "  Installing $($d.Name)..." -ForegroundColor Cyan
+        Write-Host "  Installing $dname..." -ForegroundColor Cyan
         try {
             & $d.Install 2>&1 | Out-Null
             # Re-verify
             $ver = try { & $d.Ver } catch { $null }
             $ok  = $null -ne $ver -and "$ver".Trim() -ne ''
-            Write-Host ("    {0} {1}" -f $(if ($ok){'✓ Done'}else{'✗ Failed'}), $d.Name) `
-                -ForegroundColor $(if ($ok){'Green'}else{'Red'})
+            $resTxt = if ($ok) { '✓ Done' } else { '✗ Failed' }
+            $resCol = if ($ok) { 'Green' } else { 'Red' }
+            Write-Host ("    {0} {1}" -f $resTxt, $dname) -ForegroundColor $resCol
         } catch {
             Write-Host "    ✗ Install error: $_" -ForegroundColor Red
         }

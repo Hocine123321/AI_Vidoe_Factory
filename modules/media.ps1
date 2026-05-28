@@ -106,9 +106,10 @@ function Get-ElevenLabsErrorMessage {
     try {
         $json = $Body | ConvertFrom-Json
         if ($json.detail) {
-            $msg = if ($json.detail.message) { $json.detail.message } else { ($json.detail | ConvertTo-Json -Compress -Depth 5) }
-            $code = if ($json.detail.code) { " [$($json.detail.code)]" } else { '' }
-            $req = if ($json.detail.request_id) { " Request ID: $($json.detail.request_id)" } else { '' }
+            $jdet = $json.detail
+            $msg = if ($jdet.message) { $jdet.message } else { ($jdet | ConvertTo-Json -Compress -Depth 5) }
+            $code = if ($jdet.code) { $c = $jdet.code; " [$c]" } else { '' }
+            $req = if ($jdet.request_id) { $r = $jdet.request_id; " Request ID: $r" } else { '' }
             return "$msg$code.$req"
         }
     } catch {}
@@ -153,7 +154,8 @@ function Invoke-VoiceGeneration {
             return [PSCustomObject]@{ Success=$true }
         } catch {
             Stop-Spinner $spin -Failed
-            Write-Log -Level ERROR -Message "Edge TTS failed: $($_.Exception.Message)" -LogPath $logPath
+            $emsg = $_.Exception.Message
+            Write-Log -Level ERROR -Message "Edge TTS failed: $emsg" -LogPath $logPath
             throw "Edge TTS generation failed."
         }
     }
@@ -178,8 +180,9 @@ function Invoke-VoiceGeneration {
     for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
         $spin = Start-Spinner "ElevenLabs TTS (attempt $attempt/$maxRetries)"
         try {
+            $vvid = $Config.voice.voice_id
             $tts = Invoke-ElevenLabsTtsRequest `
-                -Uri "https://api.elevenlabs.io/v1/text-to-speech/$($Config.voice.voice_id)" `
+                -Uri "https://api.elevenlabs.io/v1/text-to-speech/$vvid" `
                 -Headers $headers `
                 -Body $body `
                 -OutputPath $outputPath
@@ -250,7 +253,9 @@ function Invoke-AudioProcessing {
         -LogPath $logPath
 
     if (-not $result.Success) {
-        throw "remove_silences.py exited $($result.ExitCode): $($result.Error)"
+        $rexit = $result.ExitCode
+        $rerr = $result.Error
+        throw "remove_silences.py exited $rexit: $rerr"
     }
     if (-not (Test-Path $output) -or (Get-Item $output).Length -lt 1024) {
         throw "optimized_voice.mp3 was not created or is empty."
@@ -284,10 +289,14 @@ function Invoke-VideoRender {
     $index      = Get-Content $indexFile -Raw | ConvertFrom-Json
     $missingImg = @($index | Where-Object { -not (Test-Path "$ProjectPath\$_") })
     if ($missingImg.Count -gt 0) {
-        throw "Render aborted — $($missingImg.Count) image(s) in index.json not found: $($missingImg -join ', ')"
+        $mcount = $missingImg.Count
+        $mjoin = $missingImg -join ', '
+        throw "Render aborted — $mcount image(s) in index.json not found: $mjoin"
     }
 
-    Write-Log -Level INFO -Message "Render starting: $($index.Count) images, codec=$($Config.video.codec)" -LogPath $logPath
+    $icount = $index.Count
+    $vcodec = $Config.video.codec
+    Write-Log -Level INFO -Message "Render starting: $icount images, codec=$vcodec" -LogPath $logPath
 
     $result = Invoke-PythonScript `
         -PyExe     $Config.paths.python_exe `
@@ -301,7 +310,9 @@ function Invoke-VideoRender {
         -LogPath $logPath
 
     if (-not $result.Success) {
-        throw "assemble_video.py exited $($result.ExitCode): $($result.Error)"
+        $rexit = $result.ExitCode
+        $rerr = $result.Error
+        throw "assemble_video.py exited $rexit: $rerr"
     }
     if (-not (Test-Path $outFile) -or (Get-Item $outFile).Length -lt 1024) {
         throw "master_output.mp4 was not created or is empty."
