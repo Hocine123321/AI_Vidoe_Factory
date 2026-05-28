@@ -258,9 +258,10 @@ function Get-FallbackModelCatalog {
             [PSCustomObject]@{ Id='gemini-3-pro-preview'; Label='gemini-3-pro-preview'; Note='preview, may vary by account' }
         )
         huggingface = @(
-            [PSCustomObject]@{ Id='meta-llama/Meta-Llama-3-8B-Instruct'; Label='Llama 3 8B'; Note='fast, high quality' },
-            [PSCustomObject]@{ Id='mistralai/Mistral-7B-Instruct-v0.3'; Label='Mistral 7B v0.3'; Note='very reliable' },
-            [PSCustomObject]@{ Id='microsoft/Phi-3-mini-4k-instruct'; Label='Phi-3 Mini'; Note='lightweight' }
+            [PSCustomObject]@{ Id='meta-llama/Meta-Llama-3-8B-Instruct'; Label='Llama-3-8B'; Note='fast, efficient' },
+            [PSCustomObject]@{ Id='mistralai/Mistral-7B-Instruct-v0.3'; Label='Mistral-7B'; Note='balanced performance' },
+            [PSCustomObject]@{ Id='meta-llama/Meta-Llama-3.1-70B-Instruct'; Label='Llama-3.1-70B'; Note='complex reasoning' },
+            [PSCustomObject]@{ Id='Qwen/Qwen2.5-72B-Instruct'; Label='Qwen-2.5-72B'; Note='strong multi-lingual' }
         )
     }
 }
@@ -320,13 +321,18 @@ function Get-LiveopenaiModels {
 
 function Get-LiveHuggingFaceModels {
     param([object]$Config)
-    # Hugging Face hub search for text-generation models
     try {
-        $uri = "https://huggingface.co/api/models?pipeline_tag=text-generation&sort=downloads&direction=-1&limit=20"
+        $amp = [char]38
+        $uri = "https://huggingface.co/api/models?pipeline_tag=text-generation${amp}sort=downloads${amp}direction=-1${amp}limit=20"
         $res = Invoke-RestMethod -Uri $uri -Method GET -TimeoutSec 20 -EA Stop
         return @(
             $res | ForEach-Object {
-                [PSCustomObject]@{ Id=$_.modelId; Label=$_.modelId; Note="Downloads: $($_.downloads)" }
+                $dl = Get-Prop $_ 'downloads' 0
+                [PSCustomObject]@{
+                    Id    = $_.modelId
+                    Label = $_.modelId
+                    Note  = "HF | $(Format-LargeCount $dl) dls"
+                }
             }
         )
     } catch {
@@ -343,8 +349,7 @@ function Get-ModelOptions {
     $live = switch ($Backend) {
         'gemini'      { Get-LiveGeminiModels -Config $Config }
         'huggingface' { Get-LiveHuggingFaceModels -Config $Config }
-        'openai'      { Get-LiveopenaiModels -Config $Config }
-        default       { @() }
+        default       { Get-LiveopenaiModels -Config $Config }
     }
 
     if (@($live).Count -gt 0) {
@@ -389,6 +394,12 @@ function Get-SuggestedAIModels {
             [PSCustomObject]@{ Slot='Fast';    Patterns=@('gemini-3(\.\d+)?-flash(?!-lite)', 'gemini-2\.5-flash(?!-lite)', 'flash(?!-lite)') },
             [PSCustomObject]@{ Slot='Lite';    Patterns=@('flash-lite', 'lite') },
             [PSCustomObject]@{ Slot='Complex'; Patterns=@('gemini-3(\.\d+)?-pro', 'gemini-2\.5-pro', 'pro') }
+        )
+    } elseif ($Backend -eq 'huggingface') {
+        $defs = @(
+            [PSCustomObject]@{ Slot='Fast';    Patterns=@('llama.*-8b', 'mistral.*-7b', '8b', '7b') },
+            [PSCustomObject]@{ Slot='Balanced'; Patterns=@('mistral.*-7b', 'gemma.*-7b', '7b') },
+            [PSCustomObject]@{ Slot='Complex'; Patterns=@('llama.*-70b', 'qwen.*-72b', '70b', '72b') }
         )
     } else {
         $defs = @(
@@ -651,10 +662,10 @@ function Get-FallbackImageModelCatalog {
     }
     if ($Provider -eq 'huggingface') {
         return @(
-            [PSCustomObject]@{ Id='stabilityai/stable-diffusion-xl-base-1.0'; Label='SDXL Base 1.0'; Note='Reliable high quality' },
-            [PSCustomObject]@{ Id='black-forest-labs/FLUX.1-dev'; Label='FLUX.1-dev'; Note='Top tier' },
-            [PSCustomObject]@{ Id='black-forest-labs/FLUX.1-schnell'; Label='FLUX.1-schnell'; Note='Fast top tier' },
-            [PSCustomObject]@{ Id='runwayml/stable-diffusion-v1-5'; Label='SD 1.5'; Note='Classic' }
+            [PSCustomObject]@{ Id='stabilityai/stable-diffusion-xl-base-1.0'; Label='SDXL Base 1.0'; Note='reliable balanced choice' },
+            [PSCustomObject]@{ Id='black-forest-labs/FLUX.1-schnell'; Label='FLUX.1-schnell'; Note='fast high quality' },
+            [PSCustomObject]@{ Id='black-forest-labs/FLUX.1-dev'; Label='FLUX.1-dev'; Note='very high quality' },
+            [PSCustomObject]@{ Id='runwayml/stable-diffusion-v1-5'; Label='SD v1.5'; Note='legacy fast choice' }
         )
     }
     return @(
@@ -706,21 +717,6 @@ function Get-LiveGeminiImageModels {
     }
 }
 
-function Get-LiveHuggingFaceImageModels {
-    param([object]$Config)
-    try {
-        $uri = "https://huggingface.co/api/models?pipeline_tag=text-to-image&sort=downloads&direction=-1&limit=20"
-        $res = Invoke-RestMethod -Uri $uri -Method GET -TimeoutSec 20 -EA Stop
-        return @(
-            $res | ForEach-Object {
-                [PSCustomObject]@{ Id=$_.modelId; Label=$_.modelId; Note="Downloads: $($_.downloads)" }
-            }
-        )
-    } catch {
-        return @()
-    }
-}
-
 function Get-LivePollinationsImageModels {
     param([object]$Config)
 
@@ -758,6 +754,27 @@ function Get-LivePollinationsImageModels {
     }
 }
 
+function Get-LiveHuggingFaceImageModels {
+    param([object]$Config)
+    try {
+        $amp = [char]38
+        $uri = "https://huggingface.co/api/models?pipeline_tag=text-to-image${amp}sort=downloads${amp}direction=-1${amp}limit=20"
+        $res = Invoke-RestMethod -Uri $uri -Method GET -TimeoutSec 20 -EA Stop
+        return @(
+            $res | ForEach-Object {
+                $dl = Get-Prop $_ 'downloads' 0
+                [PSCustomObject]@{
+                    Id    = $_.modelId
+                    Label = $_.modelId
+                    Note  = "HF | $(Format-LargeCount $dl) dls"
+                }
+            }
+        )
+    } catch {
+        return @()
+    }
+}
+
 function Get-ImageModelOptions {
     param(
         [ValidateSet('openai','gemini','huggingface','pollinations')][string]$Provider,
@@ -768,8 +785,7 @@ function Get-ImageModelOptions {
         'gemini'       { Get-LiveGeminiImageModels -Config $Config }
         'pollinations' { Get-LivePollinationsImageModels -Config $Config }
         'huggingface'  { Get-LiveHuggingFaceImageModels -Config $Config }
-        'openai'       { Get-LiveOpenAIImageModels -Config $Config }
-        default        { @() }
+        default        { Get-LiveOpenAIImageModels -Config $Config }
     }
 
     if (@($live).Count -gt 0) {
@@ -1148,7 +1164,7 @@ function Edit-AIBackend {
         } elseif ($primary -eq 'huggingface') {
             $items += @(
                 New-MenuHeader -Label 'Selected Hugging Face Settings'
-                New-MenuItem -Key 'hf_model'  -Label 'Hugging Face model' -Value (Get-Prop $Config.ai.huggingface 'model' 'meta-llama/Meta-Llama-3-8B-Instruct')
+                New-MenuItem -Key 'hf_model' -Label 'HF model' -Value (Get-Prop $Config.ai.huggingface 'model' 'meta-llama/Meta-Llama-3-8B-Instruct')
             )
         } else {
             $items += @(
@@ -1185,15 +1201,15 @@ function Edit-AIBackend {
             'openai_model' {
                 Set-Prop $Config.ai.openai 'model' (Select-ModelFromList -Backend openai -CurrentModel (Get-Prop $Config.ai.openai 'model' 'o4-mini') -Config $Config)
             }
-            'hf_model' {
-                Set-Prop $Config.ai.huggingface 'model' (Select-ModelFromList -Backend huggingface -CurrentModel (Get-Prop $Config.ai.huggingface 'model' 'meta-llama/Meta-Llama-3-8B-Instruct') -Config $Config)
-            }
             'openai_approval' {
                 $v = Select-Choice -Title 'openai Approval' -CurrentValue (Get-Prop $Config.ai.openai 'approval_mode' 'full-auto') -Choices @(
                     [PSCustomObject]@{ Label='Full auto'; Value='full-auto' },
                     [PSCustomObject]@{ Label='Suggest'; Value='suggest' }
                 )
                 Set-Prop $Config.ai.openai 'approval_mode' $v
+            }
+            'hf_model' {
+                Set-Prop $Config.ai.huggingface 'model' (Select-ModelFromList -Backend huggingface -CurrentModel (Get-Prop $Config.ai.huggingface 'model' 'meta-llama/Meta-Llama-3-8B-Instruct') -Config $Config)
             }
             'gemini_model' {
                 Set-Prop $Config.ai.gemini 'model' (Select-ModelFromList -Backend gemini -CurrentModel (Get-Prop $Config.ai.gemini 'model' 'gemini-2.5-flash') -Config $Config)
@@ -1426,7 +1442,7 @@ function Edit-ImageSettings {
                 if ($v -eq 'pollinations' -and (Get-Prop $Config.images 'model' '') -match '^(gpt-image|dall-e|gemini|imagen)') {
                     Set-Prop $Config.images 'model' 'flux'
                 }
-                if ($v -eq 'huggingface' -and (Get-Prop $Config.images 'model' '') -match '^(gpt-image|dall-e|gemini|imagen|flux)') {
+                if ($v -eq 'huggingface' -and (Get-Prop $Config.images 'model' '') -match '^(gpt-image|dall-e|gemini|imagen|flux|turbo|kontext|seedream|nanobanana)') {
                     Set-Prop $Config.images 'model' 'stabilityai/stable-diffusion-xl-base-1.0'
                 }
             }
@@ -1682,7 +1698,7 @@ function Invoke-SettingsMenu {
         $mainBackend = Get-Prop $Config.ai 'primary' 'openai'
         $mainModel = Get-Prop $Config.ai.$mainBackend 'model' ''
         $items = @(
-            New-MenuItem -Key 'api'     -Label 'API keys'       -Value "OpenAI $(Mask-Key (Get-Prop $Config.api_keys 'openai'))  Pollinations $(Mask-Key (Get-Prop $Config.api_keys 'pollinations'))"
+            New-MenuItem -Key 'api'     -Label 'API keys'       -Value "OpenAI $(Mask-Key (Get-Prop $Config.api_keys 'openai'))  HF $(Mask-Key (Get-Prop $Config.api_keys 'huggingface'))"
             New-MenuItem -Key 'ai'      -Label 'Main AI'        -Value "Primary $mainBackend  model $mainModel"
             New-MenuItem -Key 'voice'   -Label 'Voice / Audio'  -Value "$(Get-Prop $Config.voice 'model_id' 'eleven_flash_v2_5')  cleanup $(Get-Prop $Config.audio 'silence_thresh_dbfs') dBFS"
             New-MenuItem -Key 'images'  -Label 'Images/AI'      -Value "$(Get-Prop $Config.images 'mode' 'auto_review')  $(Get-Prop $Config.images 'provider' 'openai')  $(Get-CompositeLayoutLabel (Get-Prop $Config.images 'composite_layout' '1x1'))"

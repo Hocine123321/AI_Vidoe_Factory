@@ -129,6 +129,13 @@ function Get-Config {
         }
     }
 
+    foreach ($key in $defaults.ai.huggingface.Keys) {
+        if (-not (& $hasProp $cfg.ai.huggingface $key)) {
+            $cfg.ai.huggingface | Add-Member -MemberType NoteProperty -Name $key -Value $defaults.ai.huggingface[$key] -Force
+            $changed = $true
+        }
+    }
+
     # Nested: ai sub-objects
     foreach ($sub in @('openai','gemini','huggingface')) {
         if (-not (& $hasProp $cfg.ai $sub)) {

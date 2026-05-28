@@ -156,14 +156,17 @@ function Invoke-HuggingFaceBackend {
             'Content-Type'  = 'application/json'
         }
 
-        # Translate prompt to standard ChatML format if it looks like a system/user split might be needed,
-        # but for now we'll stick to a single user message as the base implementation.
+        # Attempt to split system prompt from user prompt for better model adherence
         $messages = @()
-        if ($Prompt -match '(?s)(.*?)\n=== TASK ===\n(.*)') {
-            $system = $Matches[1].Trim()
-            $user = $Matches[2].Trim()
-            $messages += @{ role = 'system'; content = $system }
-            $messages += @{ role = 'user'; content = $user }
+        if ($Prompt -match '(?s)^(.*?)=== SYSTEM RULES ===(.*)$') {
+            $systemPart = "You are a video script writer. Follow ALL instructions exactly.`n`n=== SYSTEM RULES ===" + $Matches[2]
+            # Strip the system part from the prompt to get the user task
+            $userPart = $Prompt
+            if ($userPart -match '(?s)=== TASK ===(.*)$') {
+                $userPart = "=== TASK ===" + $Matches[1]
+            }
+            $messages += @{ role = 'system'; content = $systemPart.Trim() }
+            $messages += @{ role = 'user'; content = $userPart.Trim() }
         } else {
             $messages += @{ role = 'user'; content = $Prompt }
         }
@@ -171,27 +174,16 @@ function Invoke-HuggingFaceBackend {
         $body = @{
             model    = $model
             messages = $messages
-            max_tokens = 2048
-            temperature = 0.7
+            max_tokens = 2000
         } | ConvertTo-Json -Depth 6
         
         $response = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -Body $body -ErrorAction Stop
-
-        $text = ''
-        if ($response.choices -and $response.choices[0].message -and $response.choices[0].message.content) {
-            $text = $response.choices[0].message.content.Trim()
-        }
-
-        if ([string]::IsNullOrWhiteSpace($text)) {
-            throw "Hugging Face returned no text."
-        }
-
+        $text = $response.choices[0].message.content
         Stop-Spinner $spin
         return [PSCustomObject]@{ Success=$true; Output=$text; ExitCode=0; Backend='huggingface' }
     } catch {
         Stop-Spinner $spin -Failed
-        $msg = if ($_.Exception -and $_.Exception.Message) { $_.Exception.Message } else { $_.ToString() }
-        return [PSCustomObject]@{ Success=$false; Output=$msg; ExitCode=-1; Backend='huggingface' }
+        return [PSCustomObject]@{ Success=$false; Output=$_.Exception.Message; ExitCode=-1; Backend='huggingface' }
     } finally {
         Pop-Location
     }
