@@ -150,7 +150,7 @@ function Invoke-HuggingFaceBackend {
     Push-Location $WorkDir
     $spin = Start-Spinner "$Label ($model)"
     try {
-        $uri = "https://api-inference.huggingface.co/models/$model/v1/chat/completions"
+        $uri = "https://api-inference.huggingface.co/v1/chat/completions"
         $headers = @{
             'Authorization' = "Bearer $key"
             'Content-Type'  = 'application/json'

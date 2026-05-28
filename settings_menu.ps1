@@ -328,10 +328,11 @@ function Get-LiveHuggingFaceModels {
         return @(
             $res | ForEach-Object {
                 $dl = Get-Prop $_ 'downloads' 0
+                $dlStr = Format-LargeCount $dl
                 [PSCustomObject]@{
                     Id    = $_.modelId
                     Label = $_.modelId
-                    Note  = "HF | $(Format-LargeCount $dl) dls"
+                    Note  = "HF | $dlStr dls"
                 }
             }
         )
@@ -763,10 +764,11 @@ function Get-LiveHuggingFaceImageModels {
         return @(
             $res | ForEach-Object {
                 $dl = Get-Prop $_ 'downloads' 0
+                $dlStr = Format-LargeCount $dl
                 [PSCustomObject]@{
                     Id    = $_.modelId
                     Label = $_.modelId
-                    Note  = "HF | $(Format-LargeCount $dl) dls"
+                    Note  = "HF | $dlStr dls"
                 }
             }
         )
@@ -1698,7 +1700,7 @@ function Invoke-SettingsMenu {
         $mainBackend = Get-Prop $Config.ai 'primary' 'openai'
         $mainModel = Get-Prop $Config.ai.$mainBackend 'model' ''
         $items = @(
-            New-MenuItem -Key 'api'     -Label 'API keys'       -Value "OpenAI $(Mask-Key (Get-Prop $Config.api_keys 'openai'))  HF $(Mask-Key (Get-Prop $Config.api_keys 'huggingface'))"
+            New-MenuItem -Key 'api'     -Label 'API keys'       -Value "OA:$(Mask-Key (Get-Prop $Config.api_keys 'openai')) P:$(Mask-Key (Get-Prop $Config.api_keys 'pollinations')) HF:$(Mask-Key (Get-Prop $Config.api_keys 'huggingface'))"
             New-MenuItem -Key 'ai'      -Label 'Main AI'        -Value "Primary $mainBackend  model $mainModel"
             New-MenuItem -Key 'voice'   -Label 'Voice / Audio'  -Value "$(Get-Prop $Config.voice 'model_id' 'eleven_flash_v2_5')  cleanup $(Get-Prop $Config.audio 'silence_thresh_dbfs') dBFS"
             New-MenuItem -Key 'images'  -Label 'Images/AI'      -Value "$(Get-Prop $Config.images 'mode' 'auto_review')  $(Get-Prop $Config.images 'provider' 'openai')  $(Get-CompositeLayoutLabel (Get-Prop $Config.images 'composite_layout' '1x1'))"
