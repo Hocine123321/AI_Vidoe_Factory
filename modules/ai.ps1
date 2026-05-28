@@ -155,21 +155,43 @@ function Invoke-HuggingFaceBackend {
             'Authorization' = "Bearer $key"
             'Content-Type'  = 'application/json'
         }
+
+        # Translate prompt to standard ChatML format if it looks like a system/user split might be needed,
+        # but for now we'll stick to a single user message as the base implementation.
+        $messages = @()
+        if ($Prompt -match '(?s)(.*?)\n=== TASK ===\n(.*)') {
+            $system = $Matches[1].Trim()
+            $user = $Matches[2].Trim()
+            $messages += @{ role = 'system'; content = $system }
+            $messages += @{ role = 'user'; content = $user }
+        } else {
+            $messages += @{ role = 'user'; content = $Prompt }
+        }
+
         $body = @{
             model    = $model
-            messages = @(
-                @{ role = 'user'; content = $Prompt }
-            )
-            max_tokens = 2000
+            messages = $messages
+            max_tokens = 2048
+            temperature = 0.7
         } | ConvertTo-Json -Depth 6
         
         $response = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -Body $body -ErrorAction Stop
-        $text = $response.choices[0].message.content
+
+        $text = ''
+        if ($response.choices -and $response.choices[0].message -and $response.choices[0].message.content) {
+            $text = $response.choices[0].message.content.Trim()
+        }
+
+        if ([string]::IsNullOrWhiteSpace($text)) {
+            throw "Hugging Face returned no text."
+        }
+
         Stop-Spinner $spin
         return [PSCustomObject]@{ Success=$true; Output=$text; ExitCode=0; Backend='huggingface' }
     } catch {
         Stop-Spinner $spin -Failed
-        return [PSCustomObject]@{ Success=$false; Output=$_.Exception.Message; ExitCode=-1; Backend='huggingface' }
+        $msg = if ($_.Exception -and $_.Exception.Message) { $_.Exception.Message } else { $_.ToString() }
+        return [PSCustomObject]@{ Success=$false; Output=$msg; ExitCode=-1; Backend='huggingface' }
     } finally {
         Pop-Location
     }

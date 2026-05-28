@@ -257,6 +257,11 @@ function Get-FallbackModelCatalog {
             [PSCustomObject]@{ Id='gemini-3-flash-preview'; Label='gemini-3-flash-preview'; Note='preview, may vary by account' },
             [PSCustomObject]@{ Id='gemini-3-pro-preview'; Label='gemini-3-pro-preview'; Note='preview, may vary by account' }
         )
+        huggingface = @(
+            [PSCustomObject]@{ Id='meta-llama/Meta-Llama-3-8B-Instruct'; Label='Llama 3 8B'; Note='fast, high quality' },
+            [PSCustomObject]@{ Id='mistralai/Mistral-7B-Instruct-v0.3'; Label='Mistral 7B v0.3'; Note='very reliable' },
+            [PSCustomObject]@{ Id='microsoft/Phi-3-mini-4k-instruct'; Label='Phi-3 Mini'; Note='lightweight' }
+        )
     }
 }
 
@@ -313,16 +318,33 @@ function Get-LiveopenaiModels {
     }
 }
 
+function Get-LiveHuggingFaceModels {
+    param([object]$Config)
+    # Hugging Face hub search for text-generation models
+    try {
+        $uri = "https://huggingface.co/api/models?pipeline_tag=text-generation&sort=downloads&direction=-1&limit=20"
+        $res = Invoke-RestMethod -Uri $uri -Method GET -TimeoutSec 20 -EA Stop
+        return @(
+            $res | ForEach-Object {
+                [PSCustomObject]@{ Id=$_.modelId; Label=$_.modelId; Note="Downloads: $($_.downloads)" }
+            }
+        )
+    } catch {
+        return @()
+    }
+}
+
 function Get-ModelOptions {
     param(
         [ValidateSet('openai','gemini','huggingface')][string]$Backend,
         [object]$Config
     )
 
-    $live = if ($Backend -eq 'gemini') {
-        Get-LiveGeminiModels -Config $Config
-    } else {
-        Get-LiveopenaiModels -Config $Config
+    $live = switch ($Backend) {
+        'gemini'      { Get-LiveGeminiModels -Config $Config }
+        'huggingface' { Get-LiveHuggingFaceModels -Config $Config }
+        'openai'      { Get-LiveopenaiModels -Config $Config }
+        default       { @() }
     }
 
     if (@($live).Count -gt 0) {
@@ -627,6 +649,14 @@ function Get-FallbackImageModelCatalog {
             [PSCustomObject]@{ Id='imagen-4.0-generate-001'; Label='imagen-4.0-generate-001'; Note='Imagen, saves as JPEG' }
         )
     }
+    if ($Provider -eq 'huggingface') {
+        return @(
+            [PSCustomObject]@{ Id='stabilityai/stable-diffusion-xl-base-1.0'; Label='SDXL Base 1.0'; Note='Reliable high quality' },
+            [PSCustomObject]@{ Id='black-forest-labs/FLUX.1-dev'; Label='FLUX.1-dev'; Note='Top tier' },
+            [PSCustomObject]@{ Id='black-forest-labs/FLUX.1-schnell'; Label='FLUX.1-schnell'; Note='Fast top tier' },
+            [PSCustomObject]@{ Id='runwayml/stable-diffusion-v1-5'; Label='SD 1.5'; Note='Classic' }
+        )
+    }
     return @(
         [PSCustomObject]@{ Id='gpt-image-1.5'; Label='gpt-image-1.5'; Note='best current image generator' },
         [PSCustomObject]@{ Id='gpt-image-1'; Label='gpt-image-1'; Note='stable image generator' },
@@ -670,6 +700,21 @@ function Get-LiveGeminiImageModels {
                 [PSCustomObject]@{ Id=$id; Label=$id; Note='live from Gemini API' }
             } |
             Sort-Object Id -Unique
+        )
+    } catch {
+        return @()
+    }
+}
+
+function Get-LiveHuggingFaceImageModels {
+    param([object]$Config)
+    try {
+        $uri = "https://huggingface.co/api/models?pipeline_tag=text-to-image&sort=downloads&direction=-1&limit=20"
+        $res = Invoke-RestMethod -Uri $uri -Method GET -TimeoutSec 20 -EA Stop
+        return @(
+            $res | ForEach-Object {
+                [PSCustomObject]@{ Id=$_.modelId; Label=$_.modelId; Note="Downloads: $($_.downloads)" }
+            }
         )
     } catch {
         return @()
@@ -722,7 +767,9 @@ function Get-ImageModelOptions {
     $live = switch ($Provider) {
         'gemini'       { Get-LiveGeminiImageModels -Config $Config }
         'pollinations' { Get-LivePollinationsImageModels -Config $Config }
-        default        { Get-LiveOpenAIImageModels -Config $Config }
+        'huggingface'  { Get-LiveHuggingFaceImageModels -Config $Config }
+        'openai'       { Get-LiveOpenAIImageModels -Config $Config }
+        default        { @() }
     }
 
     if (@($live).Count -gt 0) {
@@ -1098,6 +1145,11 @@ function Edit-AIBackend {
                 New-MenuItem -Key 'gemini_timeout'-Label 'Gemini timeout'      -Value "$(Get-Prop $Config.ai.gemini 'timeout_seconds' 300)s"
                 New-MenuItem -Key 'gemini_cli'    -Label 'Gemini CLI path'     -Value (Get-Prop $Config.ai.gemini 'cli_path' 'gemini')
             )
+        } elseif ($primary -eq 'huggingface') {
+            $items += @(
+                New-MenuHeader -Label 'Selected Hugging Face Settings'
+                New-MenuItem -Key 'hf_model'  -Label 'Hugging Face model' -Value (Get-Prop $Config.ai.huggingface 'model' 'meta-llama/Meta-Llama-3-8B-Instruct')
+            )
         } else {
             $items += @(
                 New-MenuHeader -Label 'Selected openai Settings'
@@ -1114,14 +1166,16 @@ function Edit-AIBackend {
             'primary' {
                 $v = Select-Choice -Title 'Primary Backend' -CurrentValue (Get-Prop $Config.ai 'primary' 'openai') -Choices @(
                     [PSCustomObject]@{ Label='openai'; Value='openai' },
-                    [PSCustomObject]@{ Label='Gemini'; Value='gemini' }
+                    [PSCustomObject]@{ Label='Gemini'; Value='gemini' },
+                    [PSCustomObject]@{ Label='Hugging Face'; Value='huggingface' }
                 )
                 Set-Prop $Config.ai 'primary' $v
             }
             'fallback' {
                 $v = Select-Choice -Title 'Fallback Backend' -CurrentValue (Get-Prop $Config.ai 'fallback' 'gemini') -Choices @(
                     [PSCustomObject]@{ Label='openai'; Value='openai' },
-                    [PSCustomObject]@{ Label='Gemini'; Value='gemini' }
+                    [PSCustomObject]@{ Label='Gemini'; Value='gemini' },
+                    [PSCustomObject]@{ Label='Hugging Face'; Value='huggingface' }
                 )
                 Set-Prop $Config.ai 'fallback' $v
             }
@@ -1130,6 +1184,9 @@ function Edit-AIBackend {
             }
             'openai_model' {
                 Set-Prop $Config.ai.openai 'model' (Select-ModelFromList -Backend openai -CurrentModel (Get-Prop $Config.ai.openai 'model' 'o4-mini') -Config $Config)
+            }
+            'hf_model' {
+                Set-Prop $Config.ai.huggingface 'model' (Select-ModelFromList -Backend huggingface -CurrentModel (Get-Prop $Config.ai.huggingface 'model' 'meta-llama/Meta-Llama-3-8B-Instruct') -Config $Config)
             }
             'openai_approval' {
                 $v = Select-Choice -Title 'openai Approval' -CurrentValue (Get-Prop $Config.ai.openai 'approval_mode' 'full-auto') -Choices @(
@@ -1356,7 +1413,8 @@ function Edit-ImageSettings {
                 $v = Select-Choice -Title 'Image Provider' -CurrentValue (Get-Prop $Config.images 'provider' 'openai') -Choices @(
                     [PSCustomObject]@{ Label='OpenAI'; Value='openai' },
                     [PSCustomObject]@{ Label='Gemini'; Value='gemini' },
-                    [PSCustomObject]@{ Label='Pollinations'; Value='pollinations' }
+                    [PSCustomObject]@{ Label='Pollinations'; Value='pollinations' },
+                    [PSCustomObject]@{ Label='Hugging Face'; Value='huggingface' }
                 )
                 Set-Prop $Config.images 'provider' $v
                 if ($v -eq 'openai' -and (Get-Prop $Config.images 'model' '') -notmatch '^(gpt-image|dall-e)') {
@@ -1367,6 +1425,9 @@ function Edit-ImageSettings {
                 }
                 if ($v -eq 'pollinations' -and (Get-Prop $Config.images 'model' '') -match '^(gpt-image|dall-e|gemini|imagen)') {
                     Set-Prop $Config.images 'model' 'flux'
+                }
+                if ($v -eq 'huggingface' -and (Get-Prop $Config.images 'model' '') -match '^(gpt-image|dall-e|gemini|imagen|flux)') {
+                    Set-Prop $Config.images 'model' 'stabilityai/stable-diffusion-xl-base-1.0'
                 }
             }
             'model' {
