@@ -1,4 +1,229 @@
-[AI_Video_Factory] Error Log
-Log file initialized
+[2026-05-27 10:38:11] ERROR: At C:\AI_Video_Factory\modules\ai.ps1:118 char:87
++ … sage "AI call failed (exit $($result.ExitCode)) via $backend: $($resu …
++                                                       ~~~~~~~~~
+Variable reference is not valid. ':' was not followed by a valid variable name character. Consider using ${} to delimit the name.
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 57
 
----
+[2026-05-27 10:40:12] ERROR: The property 'last_updated' cannot be found on this object. Verify that the property exists.
+at <ScriptBlock>, C:\AI_Video_Factory\modules\project.ps1: line 282
+at Find-IncompleteProjects, C:\AI_Video_Factory\modules\project.ps1: line 275
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 365
+
+[2026-05-27 10:42:04] ERROR: [AI] gemini failed after 1 attempt(s): Approval mode overridden to "default" because the current folder is not trusted.
+Approval mode overridden to "default" because the current folder is not trusted.
+[31mGemini CLI is not running in a trusted directory. To proceed, either use `--skip-trust`, set the `GEMINI_CLI_TRUST_WORKSPACE=true` environment variable, or trust this directory in interactive mode. For more details, see https://geminicli.com/docs/cli/trusted-folders/#headless-and-automated-environments[0m
+at Invoke-AI, C:\AI_Video_Factory\modules\ai.ps1: line 146
+at Invoke-ScriptGeneration, C:\AI_Video_Factory\modules\ai.ps1: line 197
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 226
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 378
+
+[2026-05-27 10:47:52] ERROR: The property 'Count' cannot be found on this object. Verify that the property exists.
+at Get-ScriptStats, C:\AI_Video_Factory\modules\project.ps1: line 212
+at Invoke-ScriptGeneration, C:\AI_Video_Factory\modules\ai.ps1: line 211
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 226
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 378
+
+[2026-05-27 11:44:24] ERROR: The property 'Count' cannot be found on this object. Verify that the property exists.
+at Get-ScriptStats, C:\AI_Video_Factory\modules\project.ps1: line 212
+at Invoke-ScriptGeneration, C:\AI_Video_Factory\modules\ai.ps1: line 211
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 226
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 378
+
+[2026-05-27 13:28:24] ERROR: [SCRIPT] AI did not create script_draft.txt
+at Invoke-ScriptGeneration, C:\AI_Video_Factory\modules\ai.ps1: line 240
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 233
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 397
+
+[2026-05-27 13:33:57] ERROR: [SCRIPT] AI did not create script_draft.txt
+at Invoke-ScriptGeneration, C:\AI_Video_Factory\modules\ai.ps1: line 240
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 233
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 397
+
+[2026-05-27 13:49:00] ERROR: ElevenLabs API key rejected (401). Check Settings → [1].
+at Invoke-VoiceGeneration, C:\AI_Video_Factory\modules\media.ps1: line 117
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 294
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 385
+
+[2026-05-27 14:06:06] ERROR: ElevenLabs requires payment or available credits for TTS (402). The key is valid, but this account cannot generate voice right now.
+at Invoke-VoiceGeneration, C:\AI_Video_Factory\modules\media.ps1: line 139
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 299
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 390
+
+[2026-05-27 14:54:31] ERROR: ElevenLabs TTS payment/plan restriction (402): Free users cannot use library voices via the API. Please upgrade your subscription to use this voice. [paid_plan_required]. Request ID: ad5d557f46e94bcaea6c7b8f849fb777
+at Invoke-VoiceGeneration, C:\AI_Video_Factory\modules\media.ps1: line 187
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 336
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 426
+
+[2026-05-27 17:36:30] ERROR: Cannot create object of type "System.IO.FileSystemWatcher". Error reading the  directory.
+at Wait-ForImages, C:\AI_Video_Factory\modules\project.ps1: line 334
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 353
+at Invoke-ResumeMenu, C:\AI_Video_Factory\main.ps1: line 232
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 443
+
+[2026-05-27 17:39:25] ERROR: Cannot create object of type "System.IO.FileSystemWatcher". Error reading the  directory.
+at Wait-ForImages, C:\AI_Video_Factory\modules\project.ps1: line 334
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 353
+at Invoke-ResumeMenu, C:\AI_Video_Factory\main.ps1: line 232
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 468
+
+[2026-05-27 17:44:12] ERROR: Automatic image generation did not complete and manual fallback is disabled.
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 346
+at Invoke-ResumeMenu, C:\AI_Video_Factory\main.ps1: line 232
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 468
+
+[2026-05-27 18:01:00] ERROR: Automatic image generation did not complete and manual fallback is disabled.
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 346
+at Invoke-ResumeMenu, C:\AI_Video_Factory\main.ps1: line 232
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 468
+
+[2026-05-27 18:10:55] ERROR: Automatic image generation did not complete and manual fallback is disabled.
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 362
+at Invoke-ResumeMenu, C:\AI_Video_Factory\main.ps1: line 248
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 459
+
+[2026-05-27 18:15:14] ERROR: Automatic image generation did not complete and manual fallback is disabled.
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 362
+at Invoke-ResumeMenu, C:\AI_Video_Factory\main.ps1: line 248
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 484
+
+[2026-05-27 18:22:36] ERROR: Automatic image generation did not complete and manual fallback is disabled.
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 391
+at Invoke-ResumeMenu, C:\AI_Video_Factory\main.ps1: line 277
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 488
+
+[2026-05-27 19:24:24] ERROR: ElevenLabs TTS payment/plan restriction (402): Free users cannot use library voices via the API. Please upgrade your subscription to use this voice. [paid_plan_required]. Request ID: b1fdbc3c3cabce87dcb212ffc7556bd3
+at Invoke-VoiceGeneration, C:\AI_Video_Factory\modules\media.ps1: line 187
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 463
+at Invoke-ResumeMenu, C:\AI_Video_Factory\main.ps1: line 329
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 568
+
+[2026-05-27 19:31:23] ERROR: Automatic image generation did not complete and manual fallback is disabled.
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 446
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 553
+
+[2026-05-27 19:33:53] ERROR: Automatic image generation did not complete and manual fallback is disabled.
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 446
+at Invoke-ResumeMenu, C:\AI_Video_Factory\main.ps1: line 329
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 568
+
+[2026-05-27 19:43:47] ERROR: Automatic image generation did not complete and manual fallback is disabled.
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 446
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 553
+
+[2026-05-27 19:59:33] ERROR: Automatic image generation did not complete and manual fallback is disabled.
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 446
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 553
+
+[2026-05-27 20:15:16] ERROR: The property 'Count' cannot be found on this object. Verify that the property exists.
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 526
+
+[2026-05-27 20:15:39] ERROR: The property 'Count' cannot be found on this object. Verify that the property exists.
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 526
+
+[2026-05-27 20:43:44] ERROR: Automatic image generation stopped: The value 'image/png' is not supported for 'response_format.mime_type'. Supported values: 'image/jpeg'.
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 447
+at Invoke-ResumeMenu, C:\AI_Video_Factory\main.ps1: line 329
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 577
+
+[2026-05-27 20:46:42] ERROR: Automatic image generation stopped: Unknown parameter 'image' at 'response_format'.
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 447
+at Invoke-ResumeMenu, C:\AI_Video_Factory\main.ps1: line 329
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 577
+
+[2026-05-27 22:53:37] ERROR: Automatic image generation stopped: You do not have enough quota to make this request.
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 447
+at Invoke-ResumeMenu, C:\AI_Video_Factory\main.ps1: line 329
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 577
+
+[2026-05-28 01:56:45] ERROR: [AI] codex failed after 1 attempt(s): error: unexpected argument '--approval-mode' found
+
+  tip: to pass '--approval-mode' as a value, use '-- --approval-mode'
+
+Usage: codex [OPTIONS] [PROMPT]
+       codex [OPTIONS] <COMMAND> [ARGS]
+
+For more information, try '--help'.
+at Invoke-AI, C:\AI_Video_Factory\modules\ai.ps1: line 194
+at Invoke-ScriptGeneration, C:\AI_Video_Factory\modules\ai.ps1: line 284
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 388
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 562
+
+[2026-05-28 13:52:06] ERROR: At C:\AI_Video_Factory\settings_menu.ps1:1646 char:56
++ …             Write-Host "`n  âœ— Save failed: $_" -ForegroundColor Red
++                                                  ~~~~~~~~~~~~~~~~~~~~~~
+The string is missing the terminator: ".
+
+At C:\AI_Video_Factory\settings_menu.ps1:1639 char:21
++                 try {
++                     ~
+Missing closing '}' in statement block or type definition.
+
+At C:\AI_Video_Factory\settings_menu.ps1:1662 char:1
++ 
+The Try statement is missing its Catch or Finally block.
+
+At C:\AI_Video_Factory\settings_menu.ps1:1638 char:22
++             '__save' {
++                      ~
+Missing closing '}' in statement block or type definition.
+
+At C:\AI_Video_Factory\settings_menu.ps1:1626 char:26
++         switch ($choice) {
++                          ~
+Missing closing '}' in statement block or type definition.
+
+At C:\AI_Video_Factory\settings_menu.ps1:1606 char:22
++     while ($running) {
++                      ~
+Missing closing '}' in statement block or type definition.
+
+At C:\AI_Video_Factory\settings_menu.ps1:1575 char:30
++ function Invoke-SettingsMenu {
++                              ~
+Missing closing '}' in statement block or type definition.
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 580
+
+[2026-05-28 14:08:03] ERROR: Cannot validate argument on parameter 'Backend'. The argument "codex" does not belong to the set "openai,gemini" specified by the ValidateSet attribute. Supply an argument that is in the set and then try the command again.
+at Edit-Models, C:\AI_Video_Factory\settings_menu.ps1: line 1187
+at Invoke-SettingsMenu, C:\AI_Video_Factory\settings_menu.ps1: line 1637
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 581
+
+[2026-05-28 14:15:49] ERROR: Automatic image generation stopped: Billing hard limit has been reached.
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 461
+at Invoke-ResumeMenu, C:\AI_Video_Factory\main.ps1: line 343
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 591
+
+[2026-05-28 14:17:55] ERROR: Automatic image generation stopped: Imagen 3 is only available on paid plans. Please upgrade your account at https://ai.dev/projects.
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 461
+at Invoke-ResumeMenu, C:\AI_Video_Factory\main.ps1: line 343
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 591
+
+[2026-05-28 14:18:32] ERROR: Automatic image generation stopped: Billing hard limit has been reached.
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 461
+at Invoke-ResumeMenu, C:\AI_Video_Factory\main.ps1: line 343
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 591
+
+[2026-05-28 14:39:48] ERROR: Automatic image generation stopped: Insufficient balance. This request costs ~0.0450 pollen, but your available balance is 0.0150.
+at Start-VideoPipeline, C:\AI_Video_Factory\main.ps1: line 461
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 576
+
+[2026-05-28 15:24:20] ERROR: Exception setting "CursorPosition": "The handle is invalid."
+at <ScriptBlock>, <No file>: line 3
+at Show-Banner, C:\AI_Video_Factory\main.ps1: line 291
+at Show-MainMenu, C:\AI_Video_Factory\main.ps1: line 303
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 582
+at <ScriptBlock>, <No file>: line 1
+at <ScriptBlock>, <No file>: line 1
+
+[2026-05-28 15:35:48] ERROR: The variable '$theme' cannot be retrieved because it has not been set.
+at <ScriptBlock>, C:\AI_Video_Factory\settings_menu.ps1: line 206
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 591
+
+[2026-05-28 15:40:38] ERROR: The variable '$theme' cannot be retrieved because it has not been set.
+at <ScriptBlock>, C:\AI_Video_Factory\settings_menu.ps1: line 206
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 591
+
+[2026-05-28 16:07:43] ERROR: The variable '$theme' cannot be retrieved because it has not been set.
+at <ScriptBlock>, C:\AI_Video_Factory\settings_menu.ps1: line 206
+at <ScriptBlock>, C:\AI_Video_Factory\main.ps1: line 591
+

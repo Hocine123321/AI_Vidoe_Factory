@@ -1,4 +1,55 @@
-[AI_Video_Factory] Learning Log
-Log file initialized
-
----
+2026-05-27 14:53:45 [INFO] Learning: 10 diff(s) detected
+2026-05-27 14:53:45 [DEBUG] Line 1:
+  - [00:00 - 00:03] (Hook): Creative work is a sprint through a minefield of your own bad ideas.
+  + [00:00 - 00:03] (Hook): Every creative project starts the same way... | Line 2:
+  - [00:03 - 00:06] (Point 1): You wake up at peak caffeine levels, ready to build an empire.
+  + [00:03 - 00:06] (Point 1): Setting the schedule. Planning the perfect four-hour deep-work block | Line 3:
+  - [00:06 - 00:09] (Point 2): The first hour hits; the flow state grabs your brain by the throat.
+  + [00:06 - 00:09] (Point 2): Putting on the 'uniform'. Eliminating distractions. | Line 4:
+  - [00:09 - 00:12] (Point 3): Suddenly, your design looks like absolute garbage. You delete everything.
+  + [00:09 - 00:12] (Point 3): Hoping for that sudden stroke of luck or creative genius... | Line 5:
+  - [00:12 - 00:15] (Point 4): Doubt creeps in. You stare at a blank wall for twenty minutes.
+  + [00:12 - 00:15] (Point 4): ...only to realize the first idea is completely broken. | Line 6:
+  - [00:15 - 00:18] (Point 5): Then, a flicker of logic cuts through the noise. You start typing.
+  + [00:15 - 00:18] (Point 5): Cue the isolated, late-night grinding. | Line 7:
+  - [00:18 - 00:21] (Point 6): Your hands move faster than your brain can process the incoming output.
+  + [00:18 - 00:21] (Point 6): Pushing through the mental heavy lifting. It’s a workout. | Line 8:
+  - [00:21 - 00:24] (Point 7): Coffee runs out, but the momentum carries you across the finish line.
+  + [00:21 - 00:24] (Point 7): Finally, finding the rhythm. Making the pieces harmony together. | Line 9:
+  - [00:24 - 00:27] (Point 8): You export the final file and collapse into a heap of exhaustion.
+  + [00:24 - 00:27] (Point 8): Just as your own battery hits zero... | Line 10:
+  - [00:27 - 00:30] (Outro): It is painful, messy, and necessary. Now do it all again tomorrow.
+  + [00:27 - 00:30] (Outro): ...the work is done. Time to reset and do it all again tomorrow. so as I was saying...
+2026-05-27 14:53:45 [DEBUG] Invoke-AI attempt 1 via gemini — Updating context
+2026-05-27 14:53:47 [INFO] AI call succeeded via gemini — Updating context
+2026-05-27 14:53:47 [INFO] Context files updated
+2026-05-27 17:29:15 [INFO] Learning: 1 diff(s) detected
+2026-05-27 17:29:15 [DEBUG] Line 10:
+  - [00:27 - 00:30] (Outro): Stop copying myths and build real systems.
+  + [00:27 - 00:30] (Outro): Stop copying myths and build real systems. now..what I was saying...
+2026-05-27 17:29:15 [DEBUG] Invoke-AI attempt 1 via gemini — Updating context
+2026-05-27 17:29:26 [INFO] AI call succeeded via gemini — Updating context
+2026-05-27 17:29:26 [INFO] Context files updated
+2026-05-28 14:36:27 [INFO] Learning: 1 diff(s) detected
+2026-05-28 14:36:27 [DEBUG] Line 10:
+  - [00:27 - 00:30] (Outro): Keep your hands safe.
+  + [00:27 - 00:30] (Outro): Keep your hands safe. and did you know that....
+2026-05-28 14:36:27 [DEBUG] Invoke-AI attempt 1 via gemini — Updating context
+2026-05-28 14:36:39 [INFO] AI call succeeded via gemini — Updating context
+2026-05-28 14:36:39 [INFO] Context files updated
+2026-05-28 14:38:41 [INFO] Learning: 1 diff(s) detected
+2026-05-28 14:38:41 [DEBUG] Line 10:
+  - [00:27 - 00:30] (Outro): Don't fight plastic. It always wins.
+  + [00:27 - 00:30] (Outro): Don't fight plastic!. It always wins.
+2026-05-28 14:38:41 [DEBUG] Invoke-AI attempt 1 via gemini — Updating context
+2026-05-28 14:38:53 [INFO] AI call succeeded via gemini — Updating context
+2026-05-28 14:38:53 [INFO] Context files updated
+2026-05-28 15:06:09 [INFO] Learning: 2 diff(s) detected
+2026-05-28 15:06:09 [DEBUG] Line 1:
+  - [00:00 - 00:03] (Hook): I stabbed my own leg while butchering a sheep.
+  + [00:00 - 00:03] (Hook): I stabbed my own fingernails while butchering a sheep. | Line 8:
+  - [00:21 - 00:24] (Point 7): Six emergency room stitches saved my leg.
+  + [00:21 - 00:24] (Point 7): Six emergency room stitches saved my finger.
+2026-05-28 15:06:09 [DEBUG] Invoke-AI attempt 1 via gemini — Updating context
+2026-05-28 15:06:44 [INFO] AI call succeeded via gemini — Updating context
+2026-05-28 15:06:44 [INFO] Context files updated
