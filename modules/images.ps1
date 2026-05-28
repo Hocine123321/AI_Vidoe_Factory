@@ -530,16 +530,24 @@ function Invoke-HuggingFaceImageGeneration {
     $model = $Settings.Model
     if (-not $model -or $model -eq 'auto' -or $model -match '^(gpt|gemini|flux)') { $model = 'stabilityai/stable-diffusion-xl-base-1.0' }
 
-    $uri = "https://api-inference.huggingface.co/models/$model"
+    $uri = "https://router.huggingface.co/hf-inference/models/$model"
     $headers = @{
-        'Authorization' = "Bearer $key"
-        'Content-Type'  = 'application/json'
+        'Authorization'    = "Bearer $key"
+        'Content-Type'     = 'application/json'
+        'Accept'           = 'image/png'
+        'x-wait-for-model' = 'true'
     }
     $body = @{
         inputs = $Prompt
     } | ConvertTo-Json -Compress
 
-    Invoke-WebRequest -Uri $uri -Method POST -Headers $headers -Body $body -OutFile $OutPath -TimeoutSec 180 -EA Stop | Out-Null
+    $resp = Invoke-WebRequest -Uri $uri -Method POST -Headers $headers -Body $body -TimeoutSec 240 -EA Stop
+    $contentType = [string]($resp.Headers['Content-Type'] | Select-Object -First 1)
+    if ($contentType -and $contentType -notmatch '^image/') {
+        $detail = try { [System.Text.Encoding]::UTF8.GetString([byte[]]$resp.Content) } catch { '' }
+        throw "Hugging Face returned no image (Content-Type: $contentType). $detail".Trim()
+    }
+    [System.IO.File]::WriteAllBytes($OutPath, [byte[]]$resp.Content)
 }
 
 function Get-RepairedImagePrompt {
