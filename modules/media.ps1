@@ -258,17 +258,17 @@ function Invoke-AudioProcessing {
         [ValidateNotNull()][object]$Config,
         [ValidateNotNullOrEmpty()][string]$Root
     )
-    $input   = "$ProjectPath\raw_voice.mp3"
+    $inputFile   = "$ProjectPath\raw_voice.mp3"
     $output  = "$ProjectPath\optimized_voice.mp3"
     $logPath = "$ProjectPath\session.log"
 
-    if (-not (Test-Path $input)) { throw "raw_voice.mp3 not found at $input" }
+    if (-not (Test-Path $inputFile)) { throw "raw_voice.mp3 not found at $inputFile" }
 
     $result = Invoke-PythonScript `
         -PyExe     $Config.paths.python_exe `
         -Arguments @(
             "$Root\python\remove_silences.py",
-            $input, $output,
+            $inputFile, $output,
             $Config.audio.silence_thresh_dbfs,
             $Config.audio.min_silence_len_ms,
             $Config.audio.keep_silence_ms
@@ -282,7 +282,7 @@ function Invoke-AudioProcessing {
         throw "optimized_voice.mp3 was not created or is empty."
     }
 
-    $inMb  = '{0:N2} MB' -f ((Get-Item $input).Length  / 1MB)
+    $inMb  = '{0:N2} MB' -f ((Get-Item $inputFile).Length  / 1MB)
     $outMb = '{0:N2} MB' -f ((Get-Item $output).Length / 1MB)
     Write-Host "      $inMb → $outMb  (silence stripped)" -ForegroundColor DarkGray
     Write-Log -Level INFO -Message "Audio processed: $inMb → $outMb" -LogPath $logPath
